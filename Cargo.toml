@@ -1,0 +1,12 @@
+[package]
+name = "traitstub"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
+description = "Production defaults and instance-local dependency overrides for Rust tests."
+repository = "https://github.com/humacss/traitstub"
+readme = "README.md"
+
+[dev-dependencies]
+rstest = { version = "0.26.1", default-features = false }
