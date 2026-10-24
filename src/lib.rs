@@ -37,14 +37,21 @@
 //! closures directly; the library adds no heap allocations, locks or global state.
 //! Dependency bodies and captured values can still allocate normally.
 //!
+//! A collection can optionally declare type parameters with
+//! `for [H] where [...];`. Production defaults remain generic; tests can select
+//! a concrete H with a closure argument annotation in `defs!`. Internal functions
+//! then accept `&impl Deps<H>` while public wrappers supply the real defaults.
+//!
 //! # Example
 //!
 //! The example starts with production functions and shared test stubs, then shows
-//! captured data, borrowed values, associated types, generic methods and workers.
+//! captured data, borrowed values, associated types, generic methods and workers,
+//! all in one dependency collection and one test module.
 //! Run the tests with `cargo test --example common`.
 #![doc = concat!("\n```rust\n", include_str!("../examples/common.rs"), "\n```\n")]
 
 mod defs;
 mod deps;
+mod parameterized;
 mod shared;
 mod stubs;

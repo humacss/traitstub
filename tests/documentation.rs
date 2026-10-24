@@ -20,8 +20,17 @@ fn readme_snippets_match_the_runnable_example(#[case] name: &str) {
     let (snippet, _) = section
         .split_once("\n```\n<!-- endexample -->")
         .expect("Example snippets must have a closing marker");
-    assert!(
-        example.contains(&without_indentation(snippet)),
-        "Refresh the {name} snippet from examples/common.rs"
-    );
+    // Excerpts may omit unrelated declarations, but their remaining sections
+    // must still appear verbatim and in order in the runnable example.
+    let mut remaining = example.as_str();
+    for excerpt in snippet.split("// ...") {
+        let excerpt = without_indentation(excerpt).trim().to_owned();
+        if excerpt.is_empty() {
+            continue;
+        }
+        remaining = remaining
+            .split_once(&excerpt)
+            .unwrap_or_else(|| panic!("Refresh the {name} snippet from examples/common.rs"))
+            .1;
+    }
 }

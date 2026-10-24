@@ -245,6 +245,160 @@ traitstub::deps! { value() -> usize, || 1; }
 traitstub::stubs! { missing => || 0; }
 "###;
 
+const PARAMETER_PROVIDER: &str = r###"
+pub trait Host {
+    type Value;
+    type Error;
+    fn query(&self, id: u64) -> Result<Option<Self::Value>, Self::Error>;
+}
+pub mod api {
+    core_alias::deps! {
+        export = parameter_api; scope = crate::api;
+        for [H] where [H: source::Host + ?Sized];
+        type Record = String;
+        record() -> Self::Record, String::new;
+        duplicate[T: Clone](value: T) -> (T, T), |value| (value.clone(), value);
+        make[T: Default] call [T]() -> T, T::default;
+        current() -> &str, || "production";
+        query(host: &H, id: u64) -> Result<Option<H::Value>, H::Error>, |host, id| host.query(id);
+        #[cfg(feature = "present")]
+        label() -> &'static str, || "production";
+        #[cfg_attr(all(), cfg(any()))]
+        unavailable(value: Missing) -> Missing, |value| value;
+    }
+}
+pub mod shared {
+    use crate::api::Deps;
+    core_alias::stubs! {
+        export = parameter_defaults; scope = crate::shared;
+        type Record = Vec<u8>;
+        record => Vec::new;
+        duplicate => |value| (value.clone(), value);
+        make => T::default;
+        current => || "shared";
+        query => |_, _| Ok(None);
+        label => || "shared";
+    }
+}
+"###;
+
+const PARAMETER_CONSUMER: &str = r###"
+#![forbid(macro_expanded_macro_exports_accessed_by_absolute_paths)]
+use provider::api::Deps;
+use provider::shared::Defs;
+pub struct Memory;
+impl provider::Host for Memory {
+    type Value = String;
+    type Error = &'static str;
+    fn query(&self, id: u64) -> Result<Option<String>, &'static str> {
+        Ok(Some(format!("real-{id}")))
+    }
+}
+#[test]
+fn infer_captured_types_through_exported_contracts_and_defaults() {
+    let name = String::from("captured");
+    let deps = core_alias::defs! { query => |_: &Memory, id| Ok(Some(format!("{name}-{id}"))); };
+    assert_eq!(deps.query(&Memory, 7), Ok(Some("captured-7".into())));
+    assert_eq!(<_ as Deps<Memory>>::label(&deps), "shared");
+    let deps = core_alias::defs! { target = deps; query => |_, _| Ok(None); };
+    assert_eq!(deps.query(&Memory, 7), Ok(None));
+    assert_eq!(Deps.query(&Memory, 7), Ok(Some("real-7".into())));
+}
+#[test]
+fn mixed_signatures_and_captured_results_cross_crate_boundaries() {
+    let record = vec![7_u8];
+    let deps = core_alias::defs! {
+        query => |_: &Memory, _| Ok(None);
+        record => || record.clone();
+        duplicate(value) => (value.clone(), value);
+        current => || "override";
+    };
+    assert_eq!(deps.record(), vec![7]);
+    assert_eq!(deps.duplicate("text"), ("text", "text"));
+    assert_eq!(deps.duplicate(8), (8, 8));
+    assert_eq!(deps.make::<u64>(), 0);
+    assert_eq!(deps.current(), "override");
+    let name = String::from("fixture");
+    let borrowed = core_alias::defs! {
+        target = deps;
+        capture ['fixture];
+        current() -> &'fixture str => || name.as_str();
+    };
+    assert_eq!(borrowed.current(), "fixture");
+    assert_eq!(borrowed.record(), vec![7]);
+}
+
+mod local {
+    use provider::api::Deps;
+    core_alias::stubs! {
+        contract = Deps; export = consumer_defaults; name = Local; scope = crate::local;
+        type Record = Vec<u8>;
+        record => Vec::new;
+        duplicate => |value| (value.clone(), value);
+        make => T::default;
+        current => || "shared";
+        query => |_, _| Ok(None);
+        label => || "local";
+    }
+}
+mod imported {
+    use provider::api::Deps;
+    use crate::local::Local as Defs;
+    #[test]
+    fn consumer_owned_defaults_keep_the_provider_types() {
+        let deps = core_alias::defs! { query => |_: &crate::Memory, _| Err("test failure"); };
+        assert_eq!(deps.query(&crate::Memory, 7), Err("test failure"));
+        assert_eq!(<_ as Deps<crate::Memory>>::label(&deps), "local");
+    }
+    #[test]
+    fn explicit_contract_can_wrap_a_production_base() {
+        let deps = core_alias::defs! { contract = Deps; target = Deps;
+            query => |_: &crate::Memory, _| Ok(None);
+        };
+        assert_eq!(deps.query(&crate::Memory, 7), Ok(None));
+        assert_eq!(<_ as Deps<crate::Memory>>::label(&deps), "production");
+    }
+}
+"###;
+
+const PARAMETER_MISSING_STUB: &str = r###"
+traitstub::deps! { for [T]; value(input: &T) -> usize, |_| 0; other() -> usize, || 1; }
+traitstub::stubs! { value => |_| 0; }
+"###;
+const PARAMETER_UNKNOWN_STUB: &str = r###"
+traitstub::deps! { for [T]; value(input: &T) -> usize, |_| 0; }
+traitstub::stubs! { missing => |_| 0; }
+"###;
+const PARAMETER_MUTABLE_CAPTURE: &str = r###"
+traitstub::deps! { for [T]; value(input: &T) -> usize, |_| 0; }
+traitstub::stubs! { value => |_| 0; }
+fn check() {
+    let mut calls = 0;
+    let deps = traitstub::defs! { value => |_: &u64| { calls += 1; calls }; };
+    let _ = deps.value(&7);
+}
+"###;
+const PARAMETER_CHANGED_BINDING: &str = r###"
+traitstub::deps! { for [T]; value(input: &T) -> usize, |_| 0; }
+traitstub::stubs! { value => |_| 0; }
+fn check() {
+    let base = traitstub::defs! { value => |_: &u64| 1; };
+    let deps = traitstub::defs! { target = base; value => |_: &String| 2; };
+    let _ = deps.value(&String::new());
+}
+"###;
+const PARAMETER_ESCAPING_CAPTURE: &str = r###"
+traitstub::deps! { for [T]; value(input: &T) -> usize, |_| 0; }
+traitstub::stubs! { value => |_| 0; }
+fn check() {
+    let deps;
+    { let value = String::from("temporary");
+      deps = traitstub::defs! { value => |_: &u64| value.len(); };
+    }
+    let _ = deps.value(&7);
+}
+"###;
+
 static NEXT_BUILD: AtomicUsize = AtomicUsize::new(0);
 
 // This crate has no production dependencies or feature combinations. Compile its
@@ -316,6 +470,11 @@ fn assert_success(output: Output) {
 #[case::malformed_declaration(MALFORMED_DEPS, "deps! expects")]
 #[case::malformed_shared_stub(MALFORMED_STUBS, "stubs! expects")]
 #[case::malformed_override(MALFORMED_DEFS, "defs! expects")]
+#[case::parameter_missing_stub(PARAMETER_MISSING_STUB, "stubs! is missing a stub for other")]
+#[case::parameter_unknown_stub(PARAMETER_UNKNOWN_STUB, "unknown dependency: missing")]
+#[case::parameter_fn_mut(PARAMETER_MUTABLE_CAPTURE, "Fn")]
+#[case::parameter_changed_binding(PARAMETER_CHANGED_BINDING, "type mismatch in closure arguments")]
+#[case::parameter_escaping_capture(PARAMETER_ESCAPING_CAPTURE, "does not live long enough")]
 fn invalid_definitions_fail_even_when_unused(#[case] source: &str, #[case] expected: &str) {
     let compiler = Compiler::new();
     let source = compiler.source("rejected", source);
@@ -345,6 +504,7 @@ fn invalid_definitions_fail_even_when_unused(#[case] source: &str, #[case] expec
     "core_alias",
     false
 )]
+#[case::parameterized_contracts(PARAMETER_PROVIDER, PARAMETER_CONSUMER, "core_alias", false)]
 #[case::generics_and_provider_features(GENERIC_PROVIDER, GENERIC_CONSUMER, "renamed", false)]
 #[case::different_consumer_features(GENERIC_PROVIDER, GENERIC_CONSUMER, "renamed", true)]
 fn exported_contracts_work_between_independent_crates(

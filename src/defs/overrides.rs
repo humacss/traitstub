@@ -29,7 +29,7 @@
 /// # Using data from the test
 ///
 /// `name => closure;` and `name(arguments) => body;` reuse the schema signature
-/// and must be stateless. A captured closure uses an explicit callable signature:
+/// and must be stateless in ordinary collections. A captured closure uses an explicit callable signature:
 /// `value() -> u64 => || calls.get();`. Captures implement `Fn`; use test-owned
 /// `Cell`/`RefCell` for mutable state, or atomics/synchronization across threads.
 /// Captured signatures use concrete types (or accessible type aliases), not
@@ -38,6 +38,14 @@
 /// `capture ['fixture];` introduces a borrowed fixture lifetime, without creating
 /// storage. `for ['a] trim(value: &'a str) -> &'a str => closure;` ties a captured
 /// result to each input's lifetime. See the annotated example in the crate docs.
+///
+/// For a collection declared with `for [H] where [...];`, closures instead use
+/// the schema's callable signature: `load => |host: &ConcreteHost, id| ...;`.
+/// Rust infers H and the result/error types from the annotation and the call.
+/// These closures may capture data directly. Later layers retain the same H.
+/// Shared stubs must implement the contract for every valid H. Nested elided
+/// references in results (such as `Option<&str>`) need an explicit callable
+/// signature naming the result lifetime, just like captured fixture results.
 ///
 /// # Choosing a base
 ///

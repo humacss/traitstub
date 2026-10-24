@@ -64,6 +64,17 @@ macro_rules! __traitstub_methods {
         }
     };
 
+    (@emit [parameter_layer] [[$($attrs:tt)*] $name:ident [$($gen:tt)*] [$($call:tt)*] ($($arg:ident: $ty:ty),*) [$out:ty] [$($where:tt)*]] [forward]) => {
+        $($attrs)* fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
+            self.base.$name::<$($call)*>($($arg),*)
+        }
+    };
+    (@emit [parameter_layer] [[$($attrs:tt)*] $name:ident [$($gen:tt)*] [$($call:tt)*] ($($arg:ident: $ty:ty),*) [$out:ty] [$($where:tt)*]] [capture]) => {
+        $($attrs)* fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
+            __Calls::$name(&self.base, &self.replacement, $($arg),*)
+        }
+    };
+
     // --- @import_schema: bring both trait and metadata macro into scope as __schema ---
     (@import_schema [__local] [] [$contract:ident]) => {
         #[allow(unused_imports)] use crate as source;

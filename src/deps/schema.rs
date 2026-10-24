@@ -9,6 +9,10 @@
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_schema {
+    (@schema [__parameterized] $($context:tt)*) => {
+        $crate::__traitstub_parameter_schema! { @schema $($context)* }
+    };
+
     // --- @production: emit the trait and its zero-sized real implementation ---
     (@production [$contract:ident] [$($bounds:tt)*] [$(type $assoc:ident = $default:ty;)*]
      $($(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?

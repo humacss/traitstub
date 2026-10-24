@@ -39,12 +39,36 @@
 /// or `source::path::Type` for types in the declaring crate. Private signature
 /// imports are not carried into callers. Production closures can use local imports.
 ///
-/// These macros are intended for synchronous methods taking `&self`. Trait-level generics,
+/// `for [H] where [H: source::Host + ?Sized];` makes the collection generic,
+/// producing `Deps<H>`. Its methods use those collection parameters directly.
+/// Production defaults work for every valid H; `defs!` can infer a concrete H
+/// from a captured closure's argument annotation. Associated types, generic
+/// methods and borrowed results can share that same collection.
+///
+/// These macros are intended for synchronous methods taking `&self`. Lifetime/const collection parameters,
 /// associated type bounds/GATs, async/unsafe/foreign methods, `impl Trait` results,
 /// bare `Self` arguments, custom supertraits and `&mut self` methods are outside
 /// its scope. See the crate-level annotated example for generics and borrowing.
 #[macro_export]
 macro_rules! deps {
+    (export = $export:ident; target = $contract:ident; scope = $origin:ident $(::$scope:ident)*;
+     for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
+        $crate::__traitstub_parameter_schema! { @headers
+            [[$] [$origin] [$contract] [$export] [$($scope)*] [$($param),+] [$($($where)*)?]] []; $($body)* }
+    };
+    (export = $export:ident; scope = $origin:ident $(::$scope:ident)*;
+     for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
+        $crate::deps! { export = $export; target = Deps; scope = $origin $(::$scope)*;
+            for [$($param),+] where [$($($where)*)?]; $($body)* }
+    };
+    (target = $contract:ident; for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
+        $crate::__traitstub_parameter_schema! { @headers
+            [[$] [__local] [$contract] [__traitstub_schema] [] [$($param),+] [$($($where)*)?]] []; $($body)* }
+    };
+    (for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
+        $crate::deps! { target = Deps; for [$($param),+] where [$($($where)*)?]; $($body)* }
+    };
+
     (export = $export:ident; target = $contract:ident; scope = $origin:ident $(::$scope:ident)*; $($body:tt)*) => {
         $crate::__traitstub_deps! { @headers [$] [$origin] [$contract] [$export] [$($scope)*] [] []; $($body)* }
     };

@@ -104,6 +104,10 @@ macro_rules! stubs {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_stubs {
+    (@emit [__parameterized] $($context:tt)*) => {
+        $crate::__traitstub_parameter_stubs! { @emit $($context)* }
+    };
+
     // --- @types: collect type selections, then ask the contract to replay signatures ---
     (@types $contract:tt $name:tt $export:tt $origin:tt $scope:tt [$($choices:tt)*]; type $choice:ident = $ty:ty; $($rest:tt)*) => {
         $crate::__traitstub_stubs! { @types $contract $name $export $origin $scope [$($choices)* type $choice = $ty;]; $($rest)* }
