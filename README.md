@@ -38,38 +38,49 @@ There are three macros:
 | `defs!` | Replace the dependencies this test cares about | A new implementation based on `Defs`, or a `target` you choose |
 
 Declare the dependencies and connect them to your production functions. These
-are excerpts from the [complete example](examples/common.rs), where `users` and
-`teams` contain ordinary Rust functions. Omitted declarations are marked with
-`// ...`; the full example keeps every case in one collection and one test module.
+are excerpts from [common.rs](examples/common.rs), where `users` and `teams`
+contain ordinary Rust functions. Omitted declarations are marked with `// ...`.
+Each example has one dependency collection and one operation under test.
 
 <!-- example: dependencies -->
 ```rust
 traitstub::deps! {
-    for [H] where [H: source::Host + ?Sized];
     // ...
     load_name(id: u64) -> String, |id| users::load_name(id);
+    // ...
     team_name(id: u64) -> String, |id| teams::load_name(id);
     // ...
 }
 ```
 <!-- endexample -->
 
-The example also includes a generic host dependency, so its collection takes
-`H`. This consumer chooses `ProductionHost`. A collection without type parameters
-would simply take `&impl Deps`:
+Keep dependencies inside your implementation. The public function supplies
+production defaults; a private function takes the trait so tests can inject stubs:
 
 <!-- example: consumer -->
 ```rust
-pub fn greet(deps: &impl Deps<ProductionHost>, id: u64) -> String {
+pub fn greet(id: u64) -> Result<String, &'static str> {
+    greet_with_deps(&Deps, id)
+}
+// ...
+fn greet_with_deps(deps: &impl Deps, id: u64) -> Result<String, &'static str> {
     let user = deps.load_name(id);
     let team = deps.team_name(id);
-    format!("Hello, {user} from {team}!")
+    let message = format!(
+        "{}, {} from {}!",
+        deps.salutation(),
+        deps.trim(&user),
+        deps.trim(&team)
+    );
+    let mut output = String::new();
+    deps.write(&message, &mut output)?;
+    Ok(output)
 }
 ```
 <!-- endexample -->
 
-Pass `&Deps` in production. In the test module, use `stubs!` to define the shared
-test implementations:
+Production callers just use `greet(7)`. Tests in the same module call
+`greet_with_deps` instead. Use `stubs!` to define their shared dependencies:
 
 <!-- example: shared-stubs -->
 ```rust
@@ -94,7 +105,10 @@ let deps = traitstub::defs! {
     load_name => |_| "Ada".into();
 };
 
-assert_eq!(greet(&deps, 7), "Hello, Ada from Test Team!");
+assert_eq!(
+    greet_with_deps(&deps, 7),
+    Ok("Hello, Ada from Test Team!".into())
+);
 ```
 <!-- endexample -->
 
@@ -103,14 +117,48 @@ assert_eq!(greet(&deps, 7), "Hello, Ada from Test Team!");
 
 ### See it in action
 
-[examples/common.rs](examples/common.rs) contains the production functions,
-shared test module and complete tests behind these snippets. It also shows
-captured data, successive responses, borrowed results, associated types,
-generic methods and worker threads.
+Each example keeps one public entry point, one private implementation accepting
+dependencies, and its own complete shared test stubs. Every dependency declaration
+has a comment explaining the capability it demonstrates.
+
+| Example | Operation | What it shows |
+| --- | --- | --- |
+| [common.rs](examples/common.rs) | `greet` | Forwarding, renaming, borrowed inputs/results, mutable arguments and captured overrides |
+| [types.rs](examples/types.rs) | `process` | Custom types, adapted results, retry sequences, error propagation and function generics |
+| [workers.rs](examples/workers.rs) | `work` | `Fn`/`FnMut`/`FnOnce` callbacks, generic results and counters shared between threads |
+
+In the types example, a closure adapts an ordinary return value to the contract
+the consumer needs. Tests can then supply a missing value or an error:
+
+<!-- example: custom-types -->
+```rust
+load(id: u64) -> Result<Option<source::User>, &'static str>, |id| Ok(Some(storage::load(id)));
+```
+<!-- endexample -->
+
+The workers example keeps the launcher's generic task and result types, with
+Rust checking the bounds required to move the task between threads:
+
+<!-- example: worker-generics -->
+```rust
+spawn[T, F](name: String, run: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where [T: Send + 'static, F: FnOnce() -> T + Send + 'static],
+    |name, run| std::thread::Builder::new().name(name).spawn(run);
+```
+<!-- endexample -->
+
+The same file compares `Fn` callbacks that read captured data repeatedly with
+`FnMut` callbacks that change a captured counter. These are arguments passed to
+dependencies. Captured dependency overrides themselves still require `Fn`.
+
+Read the full files to see these declarations used by production code, shared
+stubs and individual tests. Run them independently or test all three:
 
 ```sh
 cargo run --example common
-cargo test --example common
+cargo run --example types
+cargo run --example workers
+cargo test --examples
 ```
 
 ## What the macros handle
@@ -155,7 +203,6 @@ A collection with no active methods needs no stubs.
 | `contract = api::Contract; name = TestStubs;` in `stubs!` | Select the contract and shared stub name (`target` also accepts a contract) |
 | `target = instance;` in `defs!` | Layer overrides on an existing implementation |
 | `contract = api::Contract; target = instance;` in `defs!` | Use a named contract with your own implementation or custom stubs |
-| `type Value = Type;` | Choose a shared type for production or test stubs; overrides must agree with their base |
 | `method[T: Clone](...)` | Give a method its own generic parameters |
 | `where [T: Send, F: FnOnce() -> T]` | Supply bracketed Rust predicates |
 | `call [T, N]` | Forward generic arguments that cannot be inferred |
@@ -168,8 +215,7 @@ A collection with no active methods needs no stubs.
 In ordinary collections they cannot capture test data. To borrow or own data from the test, include the
 signature: `name(argument: Type) -> Output => closure;`. Captured closures implement
 `Fn`; mutable state belongs to the test, using `Cell`, `RefCell`, atomics or other Rust
-synchronization. Captured signatures use concrete types or accessible aliases,
-not `Self::Value`. Thread safety is checked where an instance is shared.
+synchronization. Captured signatures use concrete types or accessible aliases. Thread safety is checked where an instance is shared.
 Generic type/const methods use body overrides or complete methods rather than
 captured closures. All overrides in one `defs!` share an implementation, so raw
 methods can call sibling overrides through `self`. Inherited methods continue
@@ -177,53 +223,73 @@ to call their base's implementations.
 
 If you give shared stubs a custom name, import it as `Defs` or specify both
 `contract` and `target`. An explicit contract also supports a handwritten base
-or a function returning `impl Contract`; its associated types use production choices
-unless explicit selections are supplied.
+or a function returning `impl Contract`.
 
-## Concrete types inferred from closures
+## Functions that borrow production context
 
-Use a collection parameter when production supports several host types but a
-test override needs one concrete type:
+Omit production bodies to construct dependencies from callables where their
+context is available. Function generics stay on the functions. Their signatures
+can refer to the host's existing types:
 
 ```rust
 traitstub::deps! {
-    for [H] where [H: source::Host + ?Sized];
-    host_load(host: &H, id: u64) -> Result<Option<H::Value>, H::Error>,
-        |host, id| host.load(id);
+    query[H](host: &H, id: u64) -> Result<Option<H::Value>, H::Error>
+        where [H: source::Host + ?Sized];
 }
 ```
 
-The internal function takes `deps: &impl Deps<H>`. Its public wrapper can supply
-`&Deps`, so callers do not need to pass dependencies themselves. Production
-still calls the real host and preserves its target/result and error types.
-
-Inside the test module, `stubs!` explicitly supplies every shared stub as usual.
-Those shared stubs work for every host satisfying the declared bounds. A test
-then selects its host through the closure annotation:
+`Host` is your existing integration trait. The collection declares no additional
+associated types. Production binds a real callable:
 
 ```rust
+let deps = Deps(|host: &MyHost, id| host.query(id));
+```
+
+A consumer requires the call it uses:
+
+```rust
+fn read<H: Host + ?Sized>(
+    deps: &impl calls::query<H>, host: &H, id: u64,
+) -> Result<Option<H::Value>, H::Error> {
+    deps.query(host, id)
+}
+```
+
+The collection trait `Deps` remains nongeneric. The generated `calls::query<H>`
+contract checks that this implementation can handle this function's chosen host.
+Shared stubs define every generic function; individual overrides can support one
+concrete host:
+
+```rust
+traitstub::stubs! { query => |_, _| Ok(None); }
+
+let value = 42;
 let deps = traitstub::defs! {
-    host_load => |_: &ProductionHost, _| Ok(Some(name.clone()));
+    query => |_: &MyHost, id| Ok(Some(value + id));
 };
 ```
 
-Rust infers the collection type and the closure's result/error types. The closure
-can capture test data without repeating the dependency signature. Later layers
-inherit their base's types and cannot change them. Where several types remain
-possible, use another closure annotation or an expected result type, just as in
-ordinary generic Rust code. The [complete example](examples/common.rs) combines
-this with all the other cases in one collection.
+Each override stores its closure directly. Other methods keep their base's
+capabilities. Replacing a function can also select a different host than its
+base supports. A mismatched host is a compile error.
 
-`for [H, Other] where [predicates];` accepts type parameters, including `?Sized`
-bounds. The same collection can include associated types, per-method generics
-and borrowed results. Shared stubs remain stateless; captured test behavior
-belongs in `defs!`. Layers inherit their base's associated types. Neither form
-boxes closures or adds runtime dispatch.
+The host can instead be captured by the production closure. Its type can still
+appear in the function's result; call with `query::<H>(id)` when it cannot be
+inferred from an argument. This lets exported functions keep their public API
+and pass dependencies into private implementations.
 
-For inferred captures, borrowed references nested inside an output such as
-`Option<&str>` need an explicit callable signature, for example
-`current() -> Option<&'static str> => || Some("stub");`. For a test-owned result,
-use `capture ['fixture];` and that named lifetime in the signature instead.
+See [tests/function_bindings.rs](tests/function_bindings.rs) for production
+forwarding, shared stubs and captured overrides with numeric and text hosts.
+Run it with `cargo test --test function_bindings`.
+
+This constructor form uses plain type parameter names, with bounds in
+`where [...]`. It supports owned results and ordinary input references.
+Use the production-body form for lifetime/const generics and results borrowed
+from inputs or `self`; [common.rs](examples/common.rs) shows the borrowing cases. Constructor-bound overrides use
+closures; raw method overrides belong to the production-body form.
+When using a local constructor-bound contract from another module, import both
+`Deps` and `calls`; exported contracts carry their module path automatically.
+This form reserves the generated `calls` module name.
 
 ## Sharing dependencies between modules and crates
 
@@ -244,11 +310,10 @@ does not need to mirror its features.
 ## Current limitations
 
 The macros handle synchronous methods taking `&self`, with named arguments and
-optional return types. They support per-method generics, shared associated types,
-borrowed results and captured `Fn` closures. Generic parameters and `where`
+optional return types. They support per-method generics, borrowed results and captured `Fn` closures. Generic parameters and `where`
 clauses use brackets so declarative macros can parse them.
 
-Lifetime/const collection parameters, associated type bounds/GATs, async/unsafe/foreign methods,
+Collection type parameters, associated-type declarations, async/unsafe/foreign methods,
 `impl Trait` results, bare `Self` arguments, custom supertraits and `&mut self`
 methods are outside the current syntax. A handwritten trait or implementation
 may be the simpler choice for those cases.
@@ -280,7 +345,7 @@ cargo fmt --all -- --check
 ```
 
 Unit tests beside each macro cover declarations, shared stubs, individual
-overrides, borrowing, associated types, generics and worker threads.
+overrides, borrowing, generics and worker threads.
 Integration tests cover a consumer using all three macros, real compiler and
 crate boundaries, and allocations with an isolated counting allocator.
 Each test file defines its own setup; repeated cases use `rstest`.
@@ -288,7 +353,7 @@ Each test file defines its own setup; repeated cases use `rstest`.
 `tests/compilation.rs` defines small programs in the test file and compiles them
 in temporary directories to check rejected syntax and real provider/consumer
 boundaries. Those consumer programs also run their behavioral assertions.
-The README snippets are checked against the example source.
+The README snippets are checked against their respective example files.
 
 `rstest` is a development dependency only. The library still has no dependencies.
 

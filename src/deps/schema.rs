@@ -1,7 +1,7 @@
 //! Generate dependency traits, production implementations and schema metadata.
 //!
 //! Metadata replays signatures for stubs!/defs!, selects methods by literal name,
-//! and resolves associated-type choices. Local metadata stays crate-visible;
+//! and initializes signature-checked captures. Local metadata stays crate-visible;
 //! exported metadata uses the declaring crate even when its dependency is renamed.
 //! `$d` carries a dollar token into generated macro_rules! definitions; `$runtime`
 //! identifies Traitstub in the crate invoking those definitions.
@@ -9,23 +9,25 @@
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_schema {
-    (@schema [__parameterized] $($context:tt)*) => {
-        $crate::__traitstub_parameter_schema! { @schema $($context)* }
-    };
 
+    (@production [$contract:ident] [__functions] []
+     $($(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
+       ($($arg:ident:$ty:ty),*) -> $out:ty $(where [$($where:tt)*])?, $ignored:expr;)*) => {
+        $crate::__traitstub_functions! { @production [$contract]
+            [$( ([$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?]
+                ($($arg:$ty),*) [$out] [$($($where)*)?]) )*] }
+    };
     // --- @production: emit the trait and its zero-sized real implementation ---
-    (@production [$contract:ident] [$($bounds:tt)*] [$(type $assoc:ident = $default:ty;)*]
+    (@production [$contract:ident] [$($bounds:tt)*] []
      $($(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
        ($($arg:ident: $ty:ty),*) -> $out:ty $(where [$($where:tt)*])?, $production:expr;)*) => {
         pub trait $contract: $($bounds)* {
-            $(type $assoc;)*
             $($(#[$($attr)*])* fn $name $(<$($gen)*>)? (&self, $($arg: $ty),*) -> $out $(where $($where)*)?;)*
         }
         #[doc(hidden)]
         #[derive(Clone, Copy, Default)]
         pub struct __TraitstubProduction;
         impl $contract for __TraitstubProduction {
-            $(type $assoc = $default;)*
             $($(#[$($attr)*])* fn $name $(<$($gen)*>)? (&self, $($arg: $ty),*) -> $out $(where $($where)*)? {
                 let call: fn($($ty),*) -> _ = $production;
                 call($($arg),*)
@@ -41,13 +43,13 @@ macro_rules! __traitstub_schema {
     };
 
     (@schema [$d:tt] [$origin:ident] [$contract:ident] [$export:ident] [$($scope:ident)*]
-     [$($bounds:tt)*] [$(type $assoc:ident = $default:ty;)*]
+     [$($bounds:tt)*] []
      $($(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
        ($($arg:ident: $ty:ty),* $(,)?) -> $out:ty $(where [$($where:tt)*])?, $production:expr;)*) => {
         $crate::__traitstub_schema! { @source [$origin] }
 
         $crate::__traitstub_schema! { @production
-            [$contract] [$($bounds)*] [$(type $assoc = $default;)*]
+            [$contract] [$($bounds)*] []
             $($(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
               ($($arg: $ty),*) -> $out $(where [$($where)*])?, $production;)*
         }
@@ -56,29 +58,21 @@ macro_rules! __traitstub_schema {
         macro_rules! $export {
 
             (@defaults [$d($d runtime:tt)*] [$d output:ident] [$d metadata:ident] [$d default_origin:ident] [$d($d default_scope:ident)*]
-             [$d(type $d choice:ident = $d selected:ty;)*] [$d($d overrides:tt)*]) => {
+             [] [$d($d overrides:tt)*]) => {
                 $d($d runtime)*::__traitstub_stubs! { @defaults [$d] [$d $origin] [$contract] [$($scope)*] [$($bounds)*]
-                    [$($assoc)*]
+                    []
                     [$( ([$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?] ($($arg: $ty),*) [$out] [$($($where)*)?]) )*]
                     [$d output] [$d metadata] [$d default_origin] [$d($d default_scope)*]
-                    [$d(type $d choice = $d selected;)*] [$d($d overrides)*]
+                    [] [$d($d overrides)*]
                 }
             };
             (@instance [$d($d runtime:tt)*] [$d($d request:tt)*]) => {
-                $d($d runtime)*::__traitstub_defs! { @instance [$d $origin] [$contract] [$($scope)*] [$($bounds)*] [$($assoc)*]
+                $d($d runtime)*::__traitstub_defs! { @instance [$d $origin] [$contract] [$($scope)*] [$($bounds)*] []
                     [$( ([$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?] ($($arg: $ty),*) [$out] [$($($where)*)?]) )*]
                     [$d $origin] [$($scope ::)* __TraitstubProduction] [$d($d request)*]
                 }
             };
-            $(
-                (@type [$d invoke:ident] $assoc [$d fallback:ty]; [type $assoc = $d value:ty; $d($d rest:tt)*]) => { $d value };
-                (@type [$d invoke:ident] $assoc [$d fallback:ty]; [type $d other:ident = $d ignored:ty; $d($d rest:tt)*]) => {
-                    $d invoke!(@type [$d invoke] $assoc [$d fallback]; [$d($d rest)*])
-                };
-                (@type [$d invoke:ident] $assoc [$d fallback:ty]; []) => { $d fallback };
-                (@production_type $assoc) => { $default };
-                (@valid_type $assoc) => {};
-            )*
+            (@functions) => { #[allow(unused_imports)] use source $(::$scope)* :: calls as __function_schema; };
             $(
                 (@select [$d($d runtime:tt)*] [$d kind:ident] [$d attrs:tt $name $d($d signature:tt)*]
                  [$name] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
@@ -89,8 +83,12 @@ macro_rules! __traitstub_schema {
              [$d other:ident] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
                 $d($d runtime)*::__traitstub_methods! { @find [$d kind] [$d($d signature)*] [$d($d rest)*] }
             };
+            $(
+                (@infer [$d($d runtime:tt)*] $name [$d value:expr]) => {
+                    $d($d runtime)*::__traitstub_functions! { @infer [$($($gen)*)?] [$name] [$d value] }
+                };
+            )*
             $( (@valid_method $name) => {}; )*
-            (@valid_type $d bad:ident) => { compile_error!(concat!("unknown associated type: ", stringify!($d bad))); };
             (@valid_method $d bad:ident) => { compile_error!(concat!("unknown dependency: ", stringify!($d bad))); };
         }
         #[doc(hidden)]
@@ -99,42 +97,34 @@ macro_rules! __traitstub_schema {
 
     // --- @schema_local: same schema protocol, with crate-local visibility and paths ---
     (@schema_local [$d:tt] [$origin:ident] [$contract:ident] [$export:ident] [$($scope:ident)*]
-     [$($bounds:tt)*] [$(type $assoc:ident = $default:ty;)*]
+     [$($bounds:tt)*] []
      $($(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
        ($($arg:ident: $ty:ty),* $(,)?) -> $out:ty $(where [$($where:tt)*])?, $production:expr;)*) => {
         $crate::__traitstub_schema! { @source [$origin] }
 
         $crate::__traitstub_schema! { @production
-            [$contract] [$($bounds)*] [$(type $assoc = $default;)*]
+            [$contract] [$($bounds)*] []
             $($(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
               ($($arg: $ty),*) -> $out $(where [$($where)*])?, $production;)*
         }
         macro_rules! $export {
 
             (@defaults [$d($d runtime:tt)*] [$d output:ident] [$d metadata:ident] [$d default_origin:ident] [$d($d default_scope:ident)*]
-             [$d(type $d choice:ident = $d selected:ty;)*] [$d($d overrides:tt)*]) => {
+             [] [$d($d overrides:tt)*]) => {
                 $d($d runtime)*::__traitstub_stubs! { @defaults [$d] [$origin] [$contract] [$($scope)*] [$($bounds)*]
-                    [$($assoc)*]
+                    []
                     [$( ([$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?] ($($arg: $ty),*) [$out] [$($($where)*)?]) )*]
                     [$d output] [$d metadata] [$d default_origin] [$d($d default_scope)*]
-                    [$d(type $d choice = $d selected;)*] [$d($d overrides)*]
+                    [] [$d($d overrides)*]
                 }
             };
             (@instance [$d($d runtime:tt)*] [$d($d request:tt)*]) => {
-                $d($d runtime)*::__traitstub_defs! { @instance [$origin] [$contract] [$($scope)*] [$($bounds)*] [$($assoc)*]
+                $d($d runtime)*::__traitstub_defs! { @instance [$origin] [$contract] [$($scope)*] [$($bounds)*] []
                     [$( ([$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?] ($($arg: $ty),*) [$out] [$($($where)*)?]) )*]
                     [$origin] [$($scope ::)* __TraitstubProduction] [$d($d request)*]
                 }
             };
-            $(
-                (@type [$d invoke:ident] $assoc [$d fallback:ty]; [type $assoc = $d value:ty; $d($d rest:tt)*]) => { $d value };
-                (@type [$d invoke:ident] $assoc [$d fallback:ty]; [type $d other:ident = $d ignored:ty; $d($d rest:tt)*]) => {
-                    $d invoke!(@type [$d invoke] $assoc [$d fallback]; [$d($d rest)*])
-                };
-                (@type [$d invoke:ident] $assoc [$d fallback:ty]; []) => { $d fallback };
-                (@production_type $assoc) => { $default };
-                (@valid_type $assoc) => {};
-            )*
+            (@functions) => { #[allow(unused_imports)] use calls as __function_schema; };
             $(
                 (@select [$d($d runtime:tt)*] [$d kind:ident] [$d attrs:tt $name $d($d signature:tt)*]
                  [$name] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
@@ -145,8 +135,12 @@ macro_rules! __traitstub_schema {
              [$d other:ident] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
                 $d($d runtime)*::__traitstub_methods! { @find [$d kind] [$d($d signature)*] [$d($d rest)*] }
             };
+            $(
+                (@infer [$d($d runtime:tt)*] $name [$d value:expr]) => {
+                    $d($d runtime)*::__traitstub_functions! { @infer [$($($gen)*)?] [$name] [$d value] }
+                };
+            )*
             $( (@valid_method $name) => {}; )*
-            (@valid_type $d bad:ident) => { compile_error!(concat!("unknown associated type: ", stringify!($d bad))); };
             (@valid_method $d bad:ident) => { compile_error!(concat!("unknown dependency: ", stringify!($d bad))); };
         }
         #[allow(unused_imports)]
@@ -170,7 +164,7 @@ mod tests {
     #![allow(dead_code, unused_imports)]
 
     mod contracts {
-        //! Generics, associated types, signature scope and handwritten bases.
+        //! Generics, signature scope and handwritten bases.
 
         mod method_generics {
 
@@ -194,50 +188,6 @@ mod tests {
                     [value.clone(), value.clone()]
                 );
                 assert!(std::ptr::eq(deps.echo(&value), &value));
-            }
-        }
-
-        mod associated_types {
-
-            crate::deps! {
-                type Value = u64;
-                type Error = Option<Self::Value>;
-                action() -> Result<Self::Value, Self::Error>, || Ok(42);
-            }
-            crate::stubs! {
-                type Value = String;
-                action => || Err(Some("default".into()));
-            }
-            #[test]
-            fn dependent_associated_defaults_follow_the_selected_test_type() {
-                let deps = crate::defs! { action() => Err(Some("changed".into())); };
-                assert_eq!(Deps.action(), Ok(42));
-                assert_eq!(Defs.action(), Err(Some("default".into())));
-                assert_eq!(deps.action(), Err(Some("changed".into())));
-            }
-        }
-
-        mod custom_error {
-
-            crate::deps! {
-                type Error = &'static str;
-                action() -> Result<(), Self::Error>, || Ok(());
-            }
-            crate::stubs! {
-                name = NumericDefs;
-                type Error = u32;
-                action => || Err(17);
-            }
-            #[test]
-            fn explicit_contracts_can_use_a_custom_error_type() {
-                let deps = crate::defs! {
-                    contract = Deps;
-                    target = NumericDefs;
-                    type Error = u32;
-                    action() => Err(23);
-                };
-                assert_eq!(NumericDefs.action(), Err(17));
-                assert_eq!(deps.action(), Err(23));
             }
         }
 

@@ -5,13 +5,15 @@ fn without_indentation(text: &str) -> String {
 }
 
 #[rstest]
-#[case::dependencies("dependencies")]
-#[case::consumer("consumer")]
-#[case::shared_stubs("shared-stubs")]
-#[case::individual_override("override")]
-fn readme_snippets_match_the_runnable_example(#[case] name: &str) {
+#[case::dependencies("dependencies", include_str!("../examples/common.rs"))]
+#[case::consumer("consumer", include_str!("../examples/common.rs"))]
+#[case::shared_stubs("shared-stubs", include_str!("../examples/common.rs"))]
+#[case::individual_override("override", include_str!("../examples/common.rs"))]
+#[case::custom_types("custom-types", include_str!("../examples/types.rs"))]
+#[case::worker_generics("worker-generics", include_str!("../examples/workers.rs"))]
+fn readme_snippets_match_the_runnable_example(#[case] name: &str, #[case] source: &str) {
     let readme = include_str!("../README.md");
-    let example = without_indentation(include_str!("../examples/common.rs"));
+    let example = without_indentation(source);
     let marker = format!("<!-- example: {name} -->\n```rust\n");
     let section = readme
         .split_once(&marker)
@@ -30,7 +32,7 @@ fn readme_snippets_match_the_runnable_example(#[case] name: &str) {
         }
         remaining = remaining
             .split_once(&excerpt)
-            .unwrap_or_else(|| panic!("Refresh the {name} snippet from examples/common.rs"))
+            .unwrap_or_else(|| panic!("Refresh the {name} snippet from its example file"))
             .1;
     }
 }

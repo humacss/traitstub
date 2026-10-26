@@ -5,8 +5,8 @@
 
 /// Declare the dependencies your code uses and how production calls them.
 ///
-/// You get a trait named `Deps` and a zero-sized production value with the same
-/// name. Take `&impl Deps` in the function using these dependencies, then pass
+/// With production bodies, you get a trait named `Deps` and a zero-sized
+/// production value with the same name. Take `&impl Deps` in the function using these dependencies, then pass
 /// `&Deps` when running production code. Declare one collection per module.
 /// The closures connect signatures to your existing functions and cannot capture
 /// data. They can adapt the inputs or outputs when needed.
@@ -24,7 +24,6 @@
 /// # More control
 ///
 /// - `target = Name;` selects the trait and production value name.
-/// - `type Value = Type;` declares an associated type with a production selection.
 /// - `bounds = [Send + Sync];` sets trait bounds. Standard `Clone`, `Copy` and
 ///   `Default` bounds are also supported when stored values meet those bounds.
 /// - Methods accept bracketed generics (`copy[T: Clone](value: T)`), optional
@@ -39,36 +38,61 @@
 /// or `source::path::Type` for types in the declaring crate. Private signature
 /// imports are not carried into callers. Production closures can use local imports.
 ///
-/// `for [H] where [H: source::Host + ?Sized];` makes the collection generic,
-/// producing `Deps<H>`. Its methods use those collection parameters directly.
-/// Production defaults work for every valid H; `defs!` can infer a concrete H
-/// from a captured closure's argument annotation. Associated types, generic
-/// methods and borrowed results can share that same collection.
+/// # Binding callables and specializing generic functions
 ///
-/// These macros are intended for synchronous methods taking `&self`. Lifetime/const collection parameters,
-/// associated type bounds/GATs, async/unsafe/foreign methods, `impl Trait` results,
-/// bare `Self` arguments, custom supertraits and `&mut self` methods are outside
-/// its scope. See the crate-level annotated example for generics and borrowing.
+/// Omit production bodies to get a `Deps(...)` constructor instead of the
+/// production constant. Bind real functions or borrowed context where available.
+/// `stubs!` still supplies every shared default. `defs!` stores captured `Fn`
+/// replacements directly.
+///
+/// Function generics use plain names with their bounds in `where [...]`.
+/// The nongeneric collection trait forwards each function through its own call
+/// contract, such as `calls::query<H>`. A replacement only needs to support the
+/// generic arguments used by its calls, rather than every possible type.
+///
+/// ```
+/// traitstub::deps! {
+///     query[H](host: &H, id: u64) -> String;
+///     enabled() -> bool;
+/// }
+/// traitstub::stubs! {
+///     query => |_, _| String::new();
+///     enabled => || false;
+/// }
+/// fn read<H>(deps: &impl calls::query<H>, host: &H) -> String {
+///     deps.query(host, 7)
+/// }
+/// # fn main() {
+/// let production = Deps(|host: &String, id| format!("{host}-{id}"), || true);
+/// assert_eq!(read(&production, &"real".into()), "real-7");
+/// let name = String::from("test");
+/// let test = traitstub::defs! {
+///     query => |_: &String, _| name.clone();
+/// };
+/// assert_eq!(read(&test, &String::new()), "test");
+/// assert!(!test.enabled());
+/// # }
+/// ```
+///
+/// Use the host's existing associated types in return signatures, such as
+/// `Result<Option<H::Value>, H::Error>` with `where [H: source::Host + ?Sized]`.
+/// Traitstub adds no associated types to the collection.
+/// If a generic appears only in the result, select it explicitly when calling:
+/// `deps.query::<H>(id)`. Concrete signature types infer callable arguments;
+/// generic replacements may need closure input or return annotations.
+///
+/// For a local contract used from another module, import both `Deps` and `calls`.
+/// Exported contracts carry their module path automatically. One collection per
+/// module reserves the generated `calls` module in this form.
+///
+/// Constructor-bound functions currently support plain type parameters, owned
+/// results and ordinary input references. Use production-body declarations for
+/// lifetime/const generics and results borrowed from inputs or `self`.
+/// Associated-type declarations, collection generics, async/unsafe/foreign
+/// methods, `impl Trait` results, bare `Self` arguments, custom supertraits and
+/// `&mut self` methods are outside the syntax.
 #[macro_export]
 macro_rules! deps {
-    (export = $export:ident; target = $contract:ident; scope = $origin:ident $(::$scope:ident)*;
-     for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
-        $crate::__traitstub_parameter_schema! { @headers
-            [[$] [$origin] [$contract] [$export] [$($scope)*] [$($param),+] [$($($where)*)?]] []; $($body)* }
-    };
-    (export = $export:ident; scope = $origin:ident $(::$scope:ident)*;
-     for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
-        $crate::deps! { export = $export; target = Deps; scope = $origin $(::$scope)*;
-            for [$($param),+] where [$($($where)*)?]; $($body)* }
-    };
-    (target = $contract:ident; for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
-        $crate::__traitstub_parameter_schema! { @headers
-            [[$] [__local] [$contract] [__traitstub_schema] [] [$($param),+] [$($($where)*)?]] []; $($body)* }
-    };
-    (for [$($param:ident),+ $(,)?] $(where [$($where:tt)*])?; $($body:tt)*) => {
-        $crate::deps! { target = Deps; for [$($param),+] where [$($($where)*)?]; $($body)* }
-    };
-
     (export = $export:ident; target = $contract:ident; scope = $origin:ident $(::$scope:ident)*; $($body:tt)*) => {
         $crate::__traitstub_deps! { @headers [$] [$origin] [$contract] [$export] [$($scope)*] [] []; $($body)* }
     };
@@ -86,15 +110,20 @@ macro_rules! deps {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_deps {
-    // --- @headers: collect optional bounds and associated-type defaults ---
+    (@headers [$d:tt] $origin:tt $contract:tt $export:tt $scope:tt [] [];
+     $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
+     ($($arg:ident:$ty:ty),* $(,)?) $(-> $out:ty)? $(where [$($where:tt)*])?; $($rest:tt)*) => {
+        $crate::__traitstub_functions! { @methods [[$d] $origin $contract $export $scope []] [];
+            $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
+            ($($arg:$ty),*) $(-> $out)? $(where [$($where)*])?; $($rest)* }
+    };
+    // --- @headers: collect optional collection bounds ---
     (@headers [$d:tt] [$origin:ident] [$contract:ident] [$export:ident] [$($scope:ident)*] [] $types:tt;
      bounds = [$($bounds:tt)+]; $($rest:tt)*) => {
         $crate::__traitstub_deps! { @headers [$d] [$origin] [$contract] [$export] [$($scope)*] [$($bounds)+] $types; $($rest)* }
     };
-    (@headers [$d:tt] [$origin:ident] [$contract:ident] [$export:ident] $scope:tt $bounds:tt [$($types:tt)*];
-     type $name:ident = $ty:ty; $($rest:tt)*) => {
-        $crate::__traitstub_deps! { @headers [$d] [$origin] [$contract] [$export] $scope $bounds [$($types)* type $name = $ty;]; $($rest)* }
-    };
+    (@headers $d:tt $origin:tt $contract:tt $export:tt $scope:tt $bounds:tt $types:tt;
+     type $($rest:tt)*) => { compile_error!("deps! wraps functions; put types in function signatures"); };
     (@headers [$d:tt] [$origin:ident] [$contract:ident] [$export:ident] $scope:tt $bounds:tt $types:tt; $($entries:tt)*) => {
         $crate::__traitstub_deps! { @entries [[$d] [$origin] [$contract] [$export] $scope $bounds $types] []; $($entries)* }
     };

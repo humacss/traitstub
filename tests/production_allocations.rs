@@ -80,20 +80,33 @@ fn raw_method_override_layers() {
     assert_eq!(result, 121);
 }
 
-mod parameterized {
+mod bound_functions {
     traitstub::deps! {
-        for [T];
-        value(input: &T) -> u64, |_| 1;
+        value(input: u64) -> u64;
+        generic[H](host: &H, input: u64) -> u64;
     }
-    traitstub::stubs! { value => |_| 0; }
+    traitstub::stubs! { value => |_| 0; generic => |_, _| 0; }
     pub fn run() {
-        let adjustment = std::cell::Cell::new(2_u64);
-        let deps = traitstub::defs! { value => |input: &u64| *input + adjustment.get(); };
-        assert_eq!(deps.value(&7), 9);
-        assert_eq!(Deps.value(&7), 1);
-        assert_eq!(Defs.value(&7), 0);
-        let deps = traitstub::defs! { target = deps; value => |input| *input + 3; };
-        assert_eq!(deps.value(&7), 10);
+        let multiplier = 2_u64;
+        let defaults = Deps(
+            |value| value * multiplier,
+            |_: &u64, value| value * multiplier,
+        );
+        assert_eq!(defaults.value(7), 14);
+        assert_eq!(defaults.generic(&0_u64, 7), 14);
+        let calls = std::cell::Cell::new(0);
+        let deps = traitstub::defs! { value => |input| {
+            calls.set(calls.get() + 1);
+            input + 1
+        }; };
+        assert_eq!(deps.value(7), 8);
+        assert_eq!(calls.get(), 1);
+        let generic = traitstub::defs! { generic => |_: &u64, input| {
+            calls.set(calls.get() + 1);
+            input + 1
+        }; };
+        assert_eq!(generic.generic(&0_u64, 7), 8);
+        assert_eq!(calls.get(), 2);
     }
 }
 
@@ -101,7 +114,7 @@ mod parameterized {
 #[case::production_and_shared(production_and_named_defaults)]
 #[case::captured_layers(captured_override_layers)]
 #[case::raw_methods(raw_method_override_layers)]
-#[case::inferred_generic_captures(parameterized::run)]
+#[case::bound_functions(bound_functions::run)]
 fn implementations_need_no_infrastructure_allocations(#[case] operation: fn()) {
     ALLOCATIONS.with(|count| count.set(0));
     ACTIVE.with(|active| active.set(true));

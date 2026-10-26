@@ -1,8 +1,7 @@
-//! Parse instance-local overrides and select their base, types and lifetimes.
+//! Parse instance-local overrides and select their base and capture lifetimes.
 //!
 //! defs! loads schema metadata, then @headers and @parse normalize the request.
-//! Captures collects typed closures; layer emits the new implementation using
-//! type_defaults for associated-type resolution.
+//! Captures collects typed closures; layer emits the new implementation.
 //! Replacements are `(name [body expression])`, `(name [method RustItem])` or
 //! `(name [capture [binder] [argument types] [result type] [closure]])`.
 
@@ -32,29 +31,24 @@
 /// and must be stateless in ordinary collections. A captured closure uses an explicit callable signature:
 /// `value() -> u64 => || calls.get();`. Captures implement `Fn`; use test-owned
 /// `Cell`/`RefCell` for mutable state, or atomics/synchronization across threads.
-/// Captured signatures use concrete types (or accessible type aliases), not
-/// `Self::Value`. Generic type/const methods use body overrides or full methods.
+/// Captured signatures use concrete types or accessible type aliases.
+/// Ordinary generic type/const methods use body overrides or full methods.
 ///
 /// `capture ['fixture];` introduces a borrowed fixture lifetime, without creating
 /// storage. `for ['a] trim(value: &'a str) -> &'a str => closure;` ties a captured
 /// result to each input's lifetime. See the annotated example in the crate docs.
 ///
-/// For a collection declared with `for [H] where [...];`, closures instead use
-/// the schema's callable signature: `load => |host: &ConcreteHost, id| ...;`.
-/// Rust infers H and the result/error types from the annotation and the call.
-/// These closures may capture data directly. Later layers retain the same H.
-/// Shared stubs must implement the contract for every valid H. Nested elided
-/// references in results (such as `Option<&str>`) need an explicit callable
-/// signature naming the result lifetime, just like captured fixture results.
+/// Constructor-bound collections accept captured `Fn` closures directly. For
+/// generic functions, annotate closure inputs or results where needed. A
+/// replacement supports the generic types for which its closure is callable;
+/// other functions retain the capabilities of their base. Replacing a function
+/// does not require the base to support that replacement's generic arguments.
 ///
 /// # Choosing a base
 ///
 /// `contract = api::Deps; target = instance;` explicitly selects the contract,
-/// including for handwritten implementations. Associated types then use the
-/// production defaults unless leading `type Value = Type;` selections are supplied;
-/// selections must agree with the base. Header-free layers use the shared stubs'
-/// selected types. For custom stub names, import the metadata as `Defs` or give
-/// both `contract` and `target`.
+/// including for handwritten implementations. For custom stub names, import
+/// the metadata as `Defs` or give both `contract` and `target`.
 ///
 /// The base is evaluated once, before captured closures, which are evaluated in
 /// declaration order. Layers implement `Clone`, `Copy` and `Default` when their
@@ -139,6 +133,9 @@ macro_rules! defs {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_defs {
+    (@instance $root:tt $contract:tt $scope:tt [__functions] $assoc:tt $methods:tt $defaults:tt $path:tt [$($request:tt)*]) => {
+        $crate::__traitstub_function_overrides! { @instance [$root $contract $scope $assoc $methods] [$($request)*] }
+    };
     // --- @instance: receive the schema and start with Defs as the default base ---
     (@instance $root:tt $contract:tt $scope:tt $bounds:tt $assoc:tt $methods:tt $defaults:tt $path:tt [$($request:tt)*]) => {
         $crate::__traitstub_defs! { @headers [$root $contract $scope $bounds $assoc $methods $defaults $path] [Defs] [] []; $($request)* }
@@ -147,9 +144,6 @@ macro_rules! __traitstub_defs {
     // --- @headers: read the target, type selections and captured lifetimes ---
     (@headers $context:tt $target:tt $choices:tt $lifetime:tt; target = $value:expr; $($rest:tt)*) => {
         $crate::__traitstub_defs! { @headers $context [$value] $choices $lifetime; $($rest)* }
-    };
-    (@headers $context:tt $target:tt [$($choices:tt)*] $lifetime:tt; type $name:ident = $ty:ty; $($rest:tt)*) => {
-        $crate::__traitstub_defs! { @headers $context $target [$($choices)* type $name = $ty;] $lifetime; $($rest)* }
     };
     (@headers $context:tt $target:tt $choices:tt []; capture [$($lifetime:lifetime),+]; $($rest:tt)*) => {
         $crate::__traitstub_defs! { @headers $context $target $choices [$($lifetime),+]; $($rest)* }
@@ -252,8 +246,7 @@ mod tests {
     mod unified_api {
         //! One public macro set supports ordinary and generic dependency collections.
         crate::deps! {
-            type Value = String;
-            load(id: u64) -> Self::Value, |id| id.to_string();
+            load(id: u64) -> String, |id| id.to_string();
             copy[T: Clone](value: T) -> (T, T), |value| (value.clone(), value);
             trim['a](value: &'a str) -> &'a str, |value| value.trim();
             record(value: u64), |_value| ();

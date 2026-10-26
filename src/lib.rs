@@ -31,27 +31,51 @@
 //! - Replace one or more functions in a test with [`defs!`].
 //!
 //! Production uses `&Deps`. Shared test stubs use `&Defs`. Individual overrides
-//! return a value you can pass to the same function.
+//! return a value you can pass to the same function. You can keep this argument
+//! private: a public wrapper supplies production defaults, while tests inject
+//! their dependencies into the internal function. The examples below show this
+//! split without exposing dependencies to production callers.
 //!
 //! Production and shared defaults are zero-sized. Overrides store their base and
 //! closures directly; the library adds no heap allocations, locks or global state.
 //! Dependency bodies and captured values can still allocate normally.
 //!
-//! A collection can optionally declare type parameters with
-//! `for [H] where [...];`. Production defaults remain generic; tests can select
-//! a concrete H with a closure argument annotation in `defs!`. Internal functions
-//! then accept `&impl Deps<H>` while public wrappers supply the real defaults.
+//! A collection can also declare function signatures without production bodies.
+//! Its constructor then binds the real callables where their context is known.
+//! The collection trait has no type parameters; generic methods keep their own.
+//! In this form, a helper can take `&impl calls::query<H>` to require just the
+//! call its implementation needs. Test closures may support one concrete host,
+//! while other calls retain their base implementations. Types remain in function
+//! signatures; Traitstub has no associated-type declaration syntax.
 //!
-//! # Example
+//! # Examples
 //!
-//! The example starts with production functions and shared test stubs, then shows
-//! captured data, borrowed values, associated types, generic methods and workers,
-//! all in one dependency collection and one test module.
-//! Run the tests with `cargo test --example common`.
+//! Each file has one public entry point that uses production defaults, one private
+//! implementation accepting dependencies, and a complete test setup. Comments on
+//! the dependency declarations explain why each function is included.
+//! Run them with `cargo run --example common`, `cargo run --example types` or
+//! `cargo run --example workers`. Test all three with `cargo test --examples`.
+//!
+//! ## Common dependencies
+//!
+//! A greeting shows regular and renamed functions, borrowed results, mutable
+//! arguments, test-owned captures and independent override layers.
 #![doc = concat!("\n```rust\n", include_str!("../examples/common.rs"), "\n```\n")]
+//!
+//! ## Types and results
+//!
+//! Loading and saving a user shows custom values, adapting return types, generic
+//! methods, errors and successive responses from a test-owned iterator.
+#![doc = concat!("\n```rust\n", include_str!("../examples/types.rs"), "\n```\n")]
+//!
+//! ## Workers
+//!
+//! Callback arguments show `Fn`, `FnMut` and `FnOnce` bounds with generic results.
+//! Worker tests also share captured state between concurrent callers. These
+//! callback bounds do not change the `Fn` requirement on captured overrides.
+#![doc = concat!("\n```rust\n", include_str!("../examples/workers.rs"), "\n```\n")]
 
 mod defs;
 mod deps;
-mod parameterized;
 mod shared;
 mod stubs;

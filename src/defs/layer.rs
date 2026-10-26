@@ -10,24 +10,19 @@ macro_rules! __traitstub_layer {
      [$target:expr] $choices:tt [$($lifetime:lifetime),*] [$($predicate:tt)*] [$($field:tt)*] [$($init:tt)*]
      [$(($changed:ident [$($replacement:tt)*]))*]) => {{
         $crate::__traitstub_methods! { @import_schema [$root] [$($scope)*] [$contract] }
-        $crate::__traitstub_type_defaults! { @import_defaults [$] [$default_root] [$($default_path)::+] [$($assoc)*] $methods }
         $(__schema!(@valid_method $changed);)*
-        $crate::__traitstub_type_defaults! { @check_types $choices }
         $crate::__traitstub_captures! { @storage [$($field)*] }
         #[allow(non_camel_case_types)]
         #[derive(Clone, Copy, Default)]
         struct __Layer<$($lifetime,)* __Base, __Functions>
-        where __Base: __schema<$($assoc = __schema!(@type [__schema] $assoc
-            [__traitstub_default_type!($assoc)]; $choices),)*>, __Functions: __CaptureCalls + $($bounds)*, $($predicate)* {
+        where __Base: __schema, __Functions: __CaptureCalls + $($bounds)*, $($predicate)* {
             base: __Base,
             marker: ::core::marker::PhantomData<($(&$lifetime (),)*)>,
             replacement: __Functions,
         }
         #[allow(non_camel_case_types)]
         impl<$($lifetime,)* __Base, __Functions> __schema for __Layer<$($lifetime,)* __Base, __Functions>
-        where __Base: __schema<$($assoc = __schema!(@type [__schema] $assoc
-            [__traitstub_default_type!($assoc)]; $choices),)*>, __Functions: __CaptureCalls + $($bounds)*, $($predicate)* {
-            $(type $assoc = <__Base as __schema>::$assoc;)*
+        where __Base: __schema, __Functions: __CaptureCalls + $($bounds)*, $($predicate)* {
             $crate::__traitstub_methods! { @implement [layer] $methods [$(($changed [$($replacement)*]))*] }
         }
         let __base = $target;
@@ -329,6 +324,86 @@ mod tests {
                 (WorkerDeps.value(), WorkerDefs.value(), deps.value()),
                 (1, 2, 3)
             );
+        }
+    }
+    mod copy_contract {
+        crate::deps! {
+            bounds = [Copy];
+            value() -> u64, || 1;
+        }
+        crate::stubs! { value => || 0; }
+        #[test]
+        fn copy_bounds_work_for_stateless_and_copy_captured_overrides() {
+            let deps = crate::defs! { value() => 7; };
+            let copied = deps;
+            assert_eq!((deps.value(), copied.value()), (7, 7));
+            let increment = 2u64;
+            let deps = crate::defs! { value() -> u64 => move || increment + 7; };
+            let copied = deps;
+            assert_eq!((deps.value(), copied.value()), (9, 9));
+        }
+    }
+    mod typed_dependencies {
+        pub struct User(pub u64);
+        crate::deps! {
+            load(id: u64) -> source::defs::layer::tests::typed_dependencies::User, |id| User(id);
+            save(value: source::defs::layer::tests::typed_dependencies::User) -> u64, |value| value.0;
+            duplicate[T: Clone](value: T) -> (T, T), |value| (value.clone(), value);
+        }
+        mod tests {
+            use super::*;
+            crate::stubs! {
+                load => |id| User(id + 1);
+                save => |value| value.0;
+                duplicate => |value| (value.clone(), value);
+            }
+            #[test]
+            fn types_and_generic_functions_inherit_shared_defaults() {
+                assert_eq!(Deps.save(Deps.load(1)), 1);
+                let deps = crate::defs! { save(value) => value.0 * 2; };
+                assert_eq!(deps.save(deps.load(1)), 4);
+                let deps = crate::defs! { duplicate(value) => (value.clone(), value); };
+                assert_eq!(deps.duplicate(3), (3, 3));
+                assert_eq!(deps.duplicate("x"), ("x", "x"));
+            }
+        }
+
+        mod across_modules {
+            use crate::defs::layer::tests::typed_dependencies::tests::Defs;
+            use crate::defs::layer::tests::typed_dependencies::Deps;
+
+            #[test]
+            fn imported_defaults_keep_their_function_signatures() {
+                let deps = crate::defs! { save(value) => value.0 * 3; };
+                assert_eq!(deps.save(deps.load(1)), 6);
+            }
+        }
+        mod manual_base {
+            use crate::defs::layer::tests::typed_dependencies::{Deps, User};
+
+            struct Fixture;
+            impl Deps for Fixture {
+                fn load(&self, id: u64) -> User {
+                    User(id + 1)
+                }
+                fn save(&self, value: User) -> u64 {
+                    value.0
+                }
+                fn duplicate<T: Clone>(&self, value: T) -> (T, T) {
+                    (value.clone(), value)
+                }
+            }
+            #[test]
+            fn explicit_contract_wraps_a_handwritten_implementation_once() {
+                let mut evaluations = 0;
+                let deps = crate::defs! {
+                    contract = crate::defs::layer::tests::typed_dependencies::Deps;
+                    target = { evaluations+=1; Fixture };
+                    save(value) => value.0 * 3;
+                };
+                assert_eq!(evaluations, 1);
+                assert_eq!(deps.save(deps.load(1)), 6);
+            }
         }
     }
 }

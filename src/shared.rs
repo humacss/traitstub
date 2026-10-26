@@ -28,6 +28,12 @@ macro_rules! __traitstub_methods {
         __schema! { @select [$crate] [$kind] [$attrs $name $($signature)*] [$candidate] [$($value)*] [$($rest)*] }
     };
 
+    (@emit [function_layer] $signature:tt $replacement:tt) => {
+        $crate::__traitstub_function_layer! { @method $signature $replacement }
+    };
+    (@emit [function_stubs] $signature:tt $replacement:tt) => {
+        $crate::__traitstub_function_stubs! { @method $signature $replacement }
+    };
     // --- @emit: raw method, stateless body, missing stub, forwarding call or capture ---
     (@emit [$kind:ident] [[$($attrs:tt)*] $($signature:tt)*] [method $method:item]) => { $($attrs)* $method };
     (@emit [$kind:ident] [[$($attrs:tt)*] $name:ident [$($gen:tt)*] [$($call:tt)*] ($($arg:ident: $ty:ty),*) [$out:ty] [$($where:tt)*]] [body $body:expr]) => {
@@ -35,16 +41,6 @@ macro_rules! __traitstub_methods {
         fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
             let call: fn($($ty),*) -> _ = $body;
             call($($arg),*)
-        }
-    };
-    // Type-only default resolution needs a complete impl for qualified Self
-    // projections. These methods are never called; the local resolver is used
-    // solely as `<__Defaults as Contract>::AssociatedType` in generated bounds.
-    (@emit [type_defaults] [[$($attrs:tt)*] $name:ident [$($gen:tt)*] [$($call:tt)*] ($($arg:ident: $ty:ty),*) [$out:ty] [$($where:tt)*]] [forward]) => {
-        $($attrs)*
-        #[allow(unused_variables)]
-        fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
-            ::core::unreachable!("type-only defaults are never instantiated")
         }
     };
     (@emit [named] [[$($attrs:tt)*] $name:ident $($signature:tt)*] [forward]) => {
@@ -61,17 +57,6 @@ macro_rules! __traitstub_methods {
         $($attrs)*
         fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
             (self.replacement.$name())($($arg),*)
-        }
-    };
-
-    (@emit [parameter_layer] [[$($attrs:tt)*] $name:ident [$($gen:tt)*] [$($call:tt)*] ($($arg:ident: $ty:ty),*) [$out:ty] [$($where:tt)*]] [forward]) => {
-        $($attrs)* fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
-            self.base.$name::<$($call)*>($($arg),*)
-        }
-    };
-    (@emit [parameter_layer] [[$($attrs:tt)*] $name:ident [$($gen:tt)*] [$($call:tt)*] ($($arg:ident: $ty:ty),*) [$out:ty] [$($where:tt)*]] [capture]) => {
-        $($attrs)* fn $name<$($gen)*>(&self, $($arg: $ty),*) -> $out where $($where)* {
-            __Calls::$name(&self.base, &self.replacement, $($arg),*)
         }
     };
 

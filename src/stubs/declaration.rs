@@ -33,9 +33,9 @@
 /// # More control
 ///
 /// `contract = path::Deps; name = TestStubs;` selects a contract and output name.
-/// `target` is an alias for `contract`. Leading `type Value = TestType;` entries
-/// choose the types used by your test stubs. Omitted selections use the production
-/// defaults, with dependent defaults resolved against the selected types.
+/// `target` is an alias for `contract`. Types belong in function signatures.
+/// Shared stubs for generic constructor-bound functions implement the declared
+/// generic contract; individual `defs!` closures can specialize it for a test.
 ///
 /// Exported defaults use `contract = path::Deps; export = unique_name; name =
 /// TestStubs; scope = crate::module;` (the default name may be omitted).
@@ -104,23 +104,17 @@ macro_rules! stubs {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_stubs {
-    (@emit [__parameterized] $($context:tt)*) => {
-        $crate::__traitstub_parameter_stubs! { @emit $($context)* }
-    };
 
     // --- @types: collect type selections, then ask the contract to replay signatures ---
-    (@types $contract:tt $name:tt $export:tt $origin:tt $scope:tt [$($choices:tt)*]; type $choice:ident = $ty:ty; $($rest:tt)*) => {
-        $crate::__traitstub_stubs! { @types $contract $name $export $origin $scope [$($choices)* type $choice = $ty;]; $($rest)* }
-    };
     (@types [$($contract:ident)::+] $name:tt $export:tt $origin:tt $scope:tt $choices:tt; $($rest:tt)*) => {
         $($contract)::+! { @defaults [$crate] $name $export $origin $scope $choices [$($rest)*] }
     };
 
     // --- @defaults: receive the schema and begin normalizing user stubs ---
     (@defaults [$d:tt] [$root:ident] [$contract:ident] [$($scope:ident)*] [$($bounds:tt)*]
-     [$($assoc:ident)*] [$($methods:tt)*] [$name:ident] [$export:ident] [$default_origin:ident] [$($default_scope:ident)*]
+     [] [$($methods:tt)*] [$name:ident] [$export:ident] [$default_origin:ident] [$($default_scope:ident)*]
      [$($choices:tt)*] [$($overrides:tt)*]) => {
-        $crate::__traitstub_stubs! { @parse [[$d] [$root] [$contract] [$($scope)*] [$($bounds)*] [$($assoc)*] [$($methods)*]
+        $crate::__traitstub_stubs! { @parse [[$d] [$root] [$contract] [$($scope)*] [$($bounds)*] [] [$($methods)*]
              [$name] [$export] [$default_origin] [$($default_scope)*] [$($choices)*]] []; $($overrides)* }
     };
 
@@ -154,17 +148,17 @@ macro_rules! __traitstub_stubs {
     };
 
     (@emit [$d:tt] [$root:ident] [$contract:ident] [$($scope:ident)*] [$($bounds:tt)*]
-     [$($assoc:ident)*] [$($methods:tt)*] [$name:ident] [$export:ident] [$default_origin:ident] [$($default_scope:ident)*]
-     [$(type $choice:ident = $selected:ty;)*] [$(($changed:ident [$($replacement:tt)*]))*]) => {
+     [] [$($methods:tt)*] [$name:ident] [$export:ident] [$default_origin:ident] [$($default_scope:ident)*]
+     [] [$(($changed:ident [$($replacement:tt)*]))*]) => {
         $crate::__traitstub_stubs! { @implementation
-            [$root] [$contract] [$($scope)*] [$name] [$($assoc)*]
-            [$(type $choice = $selected;)*] [$($methods)*] [$(($changed [$($replacement)*]))*]
+            [$root] [$contract] [$($scope)*] [$name] [$($bounds)*] []
+            [] [$($methods)*] [$(($changed [$($replacement)*]))*]
         }
         #[doc(hidden)]
         #[macro_export]
         macro_rules! $export {
             ([$d($d runtime:tt)*] $d($d request:tt)*) => {
-                $d($d runtime)*::__traitstub_defs! { @instance [$root] [$contract] [$($scope)*] [$($bounds)*] [$($assoc)*] [$($methods)*]
+                $d($d runtime)*::__traitstub_defs! { @instance [$root] [$contract] [$($scope)*] [$($bounds)*] [] [$($methods)*]
                     [$d $default_origin] [$($default_scope ::)* $name] [$d($d request)*]
                 }
             };
@@ -175,15 +169,15 @@ macro_rules! __traitstub_stubs {
 
     // --- @emit_local: generate the same implementation with crate-local metadata ---
     (@emit_local [$d:tt] [$root:ident] [$contract:ident] [$($scope:ident)*] [$($bounds:tt)*]
-     [$($assoc:ident)*] [$($methods:tt)*] [$name:ident] [$export:ident] [$default_origin:ident] [$($default_scope:ident)*]
-     [$(type $choice:ident = $selected:ty;)*] [$(($changed:ident [$($replacement:tt)*]))*]) => {
+     [] [$($methods:tt)*] [$name:ident] [$export:ident] [$default_origin:ident] [$($default_scope:ident)*]
+     [] [$(($changed:ident [$($replacement:tt)*]))*]) => {
         $crate::__traitstub_stubs! { @implementation
-            [$root] [$contract] [$($scope)*] [$name] [$($assoc)*]
-            [$(type $choice = $selected;)*] [$($methods)*] [$(($changed [$($replacement)*]))*]
+            [$root] [$contract] [$($scope)*] [$name] [$($bounds)*] []
+            [] [$($methods)*] [$(($changed [$($replacement)*]))*]
         }
         macro_rules! $export {
             ([$d($d runtime:tt)*] $d($d request:tt)*) => {
-                $d($d runtime)*::__traitstub_defs! { @instance [$root] [$contract] [$($scope)*] [$($bounds)*] [$($assoc)*] [$($methods)*]
+                $d($d runtime)*::__traitstub_defs! { @instance [$root] [$contract] [$($scope)*] [$($bounds)*] [] [$($methods)*]
                     [$default_origin] [$($default_scope ::)* $name] [$d($d request)*]
                 }
             };
@@ -192,29 +186,29 @@ macro_rules! __traitstub_stubs {
         pub(crate) use $export as $name;
     };
 
+    (@implementation $root:tt $contract:tt $scope:tt $name:tt [__functions] [] [] $methods:tt $overrides:tt) => {
+        $crate::__traitstub_function_stubs! { @implementation $root $contract $scope $name $methods $overrides }
+    };
     // --- @implementation: validate names and build the zero-sized stub implementation ---
-    (@implementation [$root:ident] [$contract:ident] [$($scope:ident)*] [$name:ident] [$($assoc:ident)*]
-     [$(type $choice:ident = $selected:ty;)*] [$($methods:tt)*] [$(($changed:ident [$($replacement:tt)*]))*]) => {
+    (@implementation [$root:ident] [$contract:ident] [$($scope:ident)*] [$name:ident] $bounds:tt []
+     [] [$($methods:tt)*] [$(($changed:ident [$($replacement:tt)*]))*]) => {
         #[derive(Clone, Copy, Default)]
         pub struct $name;
         const _: () = {
             $crate::__traitstub_methods! { @import_schema [$root] [$($scope)*] [$contract] }
             // Rust rejects duplicate fields even if no method is ever called.
-            #[allow(dead_code, non_snake_case)] struct __UniqueTypes { $($choice: (),)* }
             #[allow(dead_code)] struct __UniqueMethods { $($changed: (),)* }
-            $(__schema!(@valid_type $choice);)*
             $(__schema!(@valid_method $changed);)*
             $crate::__traitstub_stubs! { @trait_impl
-                [$name] [$($assoc)*] [$(type $choice = $selected;)*]
+                [$name] [] []
                 [$($methods)*] [$(($changed [$($replacement)*]))*]
             }
         };
     };
 
-    // Treat choices as one group so each associated type can search the full list.
-    (@trait_impl [$name:ident] [$($assoc:ident)*] $choices:tt $methods:tt $overrides:tt) => {
+    // Emit the ordinary shared implementation.
+    (@trait_impl [$name:ident] [] $choices:tt $methods:tt $overrides:tt) => {
         impl __schema for $name {
-            $(type $assoc = __schema!(@type [__schema] $assoc [__schema!(@production_type $assoc)]; $choices);)*
             $crate::__traitstub_methods! { @implement [named] $methods $overrides }
         }
     };
@@ -330,16 +324,16 @@ mod tests {
     pub struct Input(pub u64);
     mod typed_api {
         crate::deps! { target = Contract;
-            value(input: &source::stubs::tests::Input) -> u64, |input| input.0;
+            value(input: &source::stubs::declaration::tests::Input) -> u64, |input| input.0;
         }
         mod defaults {
             use super::*;
             crate::stubs! { target = Contract; name = Named; value => |input| input.0 + 1; }
             #[test]
             fn named_defaults_preserve_signature_types_from_the_contract_scope() {
-                assert_eq!(Named.value(&crate::stubs::tests::Input(7)), 8);
+                assert_eq!(Named.value(&crate::stubs::declaration::tests::Input(7)), 8);
                 let deps = crate::defs! { contract = Contract; target = Named; value => |input| input.0 + 10; };
-                assert_eq!(deps.value(&crate::stubs::tests::Input(7)), 17);
+                assert_eq!(deps.value(&crate::stubs::declaration::tests::Input(7)), 17);
             }
         }
     }
