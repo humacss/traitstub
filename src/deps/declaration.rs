@@ -1,7 +1,7 @@
 //! Dependency declaration parsing and signature normalization.
 //!
-//! deps! reads headers and signatures, then conditions filters attributes before
-//! schema emits the trait, production implementation and reusable metadata.
+//! deps! reads headers and signatures, then schema emits the trait, production
+//! implementation and reusable metadata.
 
 /// Declare the dependencies your code uses and how production calls them.
 ///
@@ -28,8 +28,7 @@
 ///   `Default` bounds are also supported when stored values meet those bounds.
 /// - Methods accept bracketed generics (`copy[T: Clone](value: T)`), optional
 ///   `call [T, N]` forwarding arguments, and bracketed `where [...]` predicates.
-/// - Omitted return types mean `()`. `cfg` and `cfg_attr` are resolved in the
-///   declaring crate before signatures are exported; other attributes remain.
+/// - Omitted return types mean `()`. Method attributes are passed through unchanged.
 ///
 /// Cross-crate use adds `export = unique_name; target = Name; scope = crate::module;`
 /// before the declarations; `target` is optional.
@@ -128,41 +127,31 @@ macro_rules! __traitstub_deps {
         $crate::__traitstub_deps! { @entries [[$d] [$origin] [$contract] [$export] $scope $bounds $types] []; $($entries)* }
     };
 
-    // --- @entries: normalize signatures, adding unit output and a final semicolon ---
-    (@entries $context:tt []; ) => {
-        compile_error!("deps! requires at least one dependency declaration");
+    // Parse complete declarations in one repetition. Result types remain opaque;
+    // generated Rust signatures handle their lifetime elision.
+    (@entries [$($context:tt)*] [];
+     $( $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
+        ($($arg:ident: $ty:ty),* $(,)?) $(-> $out:ty)? $(where [$($where:tt)*])?, $production:expr; )+) => {
+        $crate::__traitstub_schema! { @schema $($context)*
+            $( $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
+               ($($arg:$ty),*) -> $crate::__traitstub_functions!(@output $($out)?)
+               $(where [$($where)*])?, $production; )+ }
     };
-    (@entries $context:tt [$($done:tt)+];) => {
-        $crate::__traitstub_conditions! { @active $context []; $($done)+ }
+    (@entries $context:tt []; ) => { compile_error!("deps! requires at least one dependency declaration"); };
+    (@entries $context:tt []; $($entries:tt)+) => {
+        $crate::__traitstub_deps! { @terminated $context; $($entries)+ ; }
     };
-    (@entries $context:tt [$($done:tt)*];
-     $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
-     ($($arg:ident: $ty:ty),* $(,)?) -> $out:ty $(where [$($where:tt)*])?, $production:expr; $($rest:tt)*) => {
-        $crate::__traitstub_deps! { @entries $context
-            [$($done)* $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
-             ($($arg: $ty),*) -> $out $(where [$($where)*])?, $production;]; $($rest)* }
+    (@terminated $context:tt;
+     $( $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
+        ($($arg:ident: $ty:ty),* $(,)?) $(-> $out:ty)? $(where [$($where:tt)*])?, $production:expr; )+) => {
+        $crate::__traitstub_deps! { @entries $context [];
+            $( $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
+               ($($arg:$ty),*) $(-> $out)? $(where [$($where)*])?, $production; )+ }
     };
-    (@entries $context:tt [$($done:tt)*];
-     $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
-     ($($arg:ident: $ty:ty),* $(,)?) $(where [$($where:tt)*])?, $production:expr; $($rest:tt)*) => {
-        $crate::__traitstub_deps! { @entries $context
-            [$($done)* $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
-             ($($arg: $ty),*) -> () $(where [$($where)*])?, $production;]; $($rest)* }
-    };
-    (@entries $context:tt $done:tt; $($tail:tt)+) => {
-        $crate::__traitstub_deps! { @entries_last $context $done; $($tail)+ }
-    };
-    (@entries_last $context:tt $done:tt;
-     $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
-     ($($arg:ident: $ty:ty),* $(,)?) $(-> $out:ty)? $(where [$($where:tt)*])?, $production:expr) => {
-        $crate::__traitstub_deps! { @entries $context $done;
-            $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
-            ($($arg: $ty),*) $(-> $out)? $(where [$($where)*])?, $production; }
-    };
-    (@entries_last $($bad:tt)*) => {
+    (@terminated $($bad:tt)*) => {
         compile_error!("deps! expects name(arguments), optional -> Output, then a comma and a production closure");
     };
-    (@entries $($bad:tt)*) => { compile_error!("deps! expects named arguments, optional bracketed generics and return type, then a comma and a production closure"); };
+
 }
 
 #[cfg(test)]

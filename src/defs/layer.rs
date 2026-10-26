@@ -1,36 +1,47 @@
 //! Generate an override layer and its forwarding or replacement methods.
 //! The target is evaluated once and retained as the base of the new value.
+//! A per-method call trait lets storage use one uniform bound for each field.
+//! Entries bind captures in the caller's scope, then declare independent selectors;
+//! raw method bodies are emitted on the final layer so `self` sees sibling overrides.
 
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_layer {
-    // --- @emit: generate the layer and its forwarding or replacement methods ---
-    (@emit [[$root:ident] [$contract:ident] [$($scope:ident)*] [$($bounds:tt)*] [$($assoc:ident)*] $methods:tt
-      [$default_root:ident] [$($default_path:ident)::+]]
-     [$target:expr] $choices:tt [$($lifetime:lifetime),*] [$($predicate:tt)*] [$($field:tt)*] [$($init:tt)*]
-     [$(($changed:ident [$($replacement:tt)*]))*]) => {{
+    (@prepare [[$root:ident] [$contract:ident] [$($scope:ident)*] [$($bounds:tt)*] $assoc:tt
+        [$(($attrs:tt $name:ident $gen:tt $call:tt $args:tt $out:tt $where:tt))*] $defaults:tt $path:tt]
+        [$target:expr] [$($lookup:ident)::+] $lifetimes:tt [$($entry:tt)+]) => {{
         $crate::__traitstub_methods! { @import_schema [$root] [$($scope)*] [$contract] }
-        $(__schema!(@valid_method $changed);)*
-        $crate::__traitstub_captures! { @storage [$($field)*] }
-        #[allow(non_camel_case_types)]
+        mod __callers {
+            $( $crate::__traitstub_entries! { @call_trait [$root] [$attrs $name $gen $call $args $out $where] } )*
+        }
+        $( $crate::__traitstub_entries! { @base_call [$attrs $name $gen $call $args $out $where] } )*
+        $crate::__traitstub_captures! { @storage [$($name)*] }
+        let __base = $target;
+        let __captured = __Captures { $($name: __schema,)* };
+        $( $crate::__traitstub_entries! { @request [bind __captured] $lifetimes $entry } )+
+        mod __selectors {
+            pub mod defaults {
+                $( $crate::__traitstub_methods! { @selector [$] [layer] [$name] [forward] } )*
+            }
+            pub mod selected {
+                #[allow(unused_imports)] pub(crate) use super::defaults::*;
+                $( $crate::__traitstub_entries! { @request [define] $lifetimes $entry } )+
+            }
+        }
+        const _: () = { $( $crate::__traitstub_entries! { @unique $entry } )+ };
         #[derive(Clone, Copy, Default)]
-        struct __Layer<$($lifetime,)* __Base, __Functions>
-        where __Base: __schema, __Functions: __CaptureCalls + $($bounds)*, $($predicate)* {
+        struct __Layer<__Base, __Functions>
+        where __Base: __schema, __Functions: __CaptureCalls + $($bounds)*,
+            $(<__Functions as __CaptureCalls>::$name: __callers::$name::__Call,)* {
             base: __Base,
-            marker: ::core::marker::PhantomData<($(&$lifetime (),)*)>,
             replacement: __Functions,
         }
-        #[allow(non_camel_case_types)]
-        impl<$($lifetime,)* __Base, __Functions> __schema for __Layer<$($lifetime,)* __Base, __Functions>
-        where __Base: __schema, __Functions: __CaptureCalls + $($bounds)*, $($predicate)* {
-            $crate::__traitstub_methods! { @implement [layer] $methods [$(($changed [$($replacement)*]))*] }
+        impl<__Base, __Functions> __schema for __Layer<__Base, __Functions>
+        where __Base: __schema, __Functions: __CaptureCalls + $($bounds)*,
+            $(<__Functions as __CaptureCalls>::$name: __callers::$name::__Call,)* {
+            $( __selectors::selected::$name::select! { [$attrs $name $gen $call $args $out $where] } )*
         }
-        let __base = $target;
-        __Layer {
-            base: __base,
-            marker: ::core::marker::PhantomData,
-            replacement: __Captures { $($init)* },
-        }
+        __Layer { base: __base, replacement: __captured }
     }};
 }
 

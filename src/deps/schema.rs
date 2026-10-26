@@ -35,6 +35,7 @@ macro_rules! __traitstub_schema {
         }
         #[allow(non_upper_case_globals)]
         pub const $contract: __TraitstubProduction = __TraitstubProduction;
+
     };
 
     // --- @schema: emit exported metadata, or dispatch to crate-local metadata ---
@@ -74,20 +75,38 @@ macro_rules! __traitstub_schema {
             };
             (@functions) => { #[allow(unused_imports)] use source $(::$scope)* :: calls as __function_schema; };
             $(
-                (@select [$d($d runtime:tt)*] [$d kind:ident] [$d attrs:tt $name $d($d signature:tt)*]
-                 [$name] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
-                    $d($d runtime)*::__traitstub_methods! { @emit [$d kind] [$d attrs $name $d($d signature)*] [$d($d value)*] }
-                };
-            )*
-            (@select [$d($d runtime:tt)*] [$d kind:ident] [$d($d signature:tt)*]
-             [$d other:ident] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
-                $d($d runtime)*::__traitstub_methods! { @find [$d kind] [$d($d signature)*] [$d($d rest)*] }
-            };
-            $(
                 (@infer [$d($d runtime:tt)*] $name [$d value:expr]) => {
                     $d($d runtime)*::__traitstub_functions! { @infer [$($($gen)*)?] [$name] [$d value] }
                 };
             )*
+            $(
+                (@capture [$d($d runtime:tt)*] [$name] $d state:tt [$d value:expr]) => {
+                    $d($d runtime)*::__traitstub_captures! { @signature $d state
+                        [$name] [$($($gen)*)?] [$($ty),*] [$($($where)*)?] [$d value] }
+                };
+            )*
+            (@capture [$d($d runtime:tt)*] [$d bad:ident] $d state:tt [$d value:expr]) => {
+                compile_error!(concat!("unknown dependency: ", stringify!($d bad)));
+            };
+            $(
+                (@entry [$d($d runtime:tt)*] [$d($d mode:tt)*] [$d($d lifetime:lifetime),*] [$name] [$d($d replacement:tt)*]) => {
+                    $d($d runtime)*::__traitstub_entries! { @select [$d($d mode)*] [$d] [$d($d lifetime),*]
+                        [[$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?]
+                         ($($arg: $ty),*) [$out] [$($($where)*)?]] [$d($d replacement)*] }
+                };
+            )*
+            (@entry [$d($d runtime:tt)*] $d mode:tt $d lifetime:tt [$d bad:ident] $d replacement:tt) => {
+                compile_error!(concat!("unknown dependency: ", stringify!($d bad)));
+            };
+            (@field [$d($d runtime:tt)*] $d lifetimes:tt $d signature:tt $d binder:tt $d args:tt $d out:tt [$d value:expr] [$d slot:ident]) => {
+                $d($d runtime)*::__traitstub_entries! { @closure [$d] [$($bounds)*] $d lifetimes $d signature
+                    $d binder $d args $d out [$d value] [$d slot]
+                    [$($name)*] }
+            };
+            (@stateless [$d($d runtime:tt)*] $d signature:tt [$d value:expr] [$d slot:ident]) => {
+                $d($d runtime)*::__traitstub_entries! { @stateless [$d] $d signature [$d value] [$d slot]
+                    [$($name)*] }
+            };
             $( (@valid_method $name) => {}; )*
             (@valid_method $d bad:ident) => { compile_error!(concat!("unknown dependency: ", stringify!($d bad))); };
         }
@@ -126,20 +145,38 @@ macro_rules! __traitstub_schema {
             };
             (@functions) => { #[allow(unused_imports)] use calls as __function_schema; };
             $(
-                (@select [$d($d runtime:tt)*] [$d kind:ident] [$d attrs:tt $name $d($d signature:tt)*]
-                 [$name] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
-                    $d($d runtime)*::__traitstub_methods! { @emit [$d kind] [$d attrs $name $d($d signature)*] [$d($d value)*] }
-                };
-            )*
-            (@select [$d($d runtime:tt)*] [$d kind:ident] [$d($d signature:tt)*]
-             [$d other:ident] [$d($d value:tt)*] [$d($d rest:tt)*]) => {
-                $d($d runtime)*::__traitstub_methods! { @find [$d kind] [$d($d signature)*] [$d($d rest)*] }
-            };
-            $(
                 (@infer [$d($d runtime:tt)*] $name [$d value:expr]) => {
                     $d($d runtime)*::__traitstub_functions! { @infer [$($($gen)*)?] [$name] [$d value] }
                 };
             )*
+            $(
+                (@capture [$d($d runtime:tt)*] [$name] $d state:tt [$d value:expr]) => {
+                    $d($d runtime)*::__traitstub_captures! { @signature $d state
+                        [$name] [$($($gen)*)?] [$($ty),*] [$($($where)*)?] [$d value] }
+                };
+            )*
+            (@capture [$d($d runtime:tt)*] [$d bad:ident] $d state:tt [$d value:expr]) => {
+                compile_error!(concat!("unknown dependency: ", stringify!($d bad)));
+            };
+            $(
+                (@entry [$d($d runtime:tt)*] [$d($d mode:tt)*] [$d($d lifetime:lifetime),*] [$name] [$d($d replacement:tt)*]) => {
+                    $d($d runtime)*::__traitstub_entries! { @select [$d($d mode)*] [$d] [$d($d lifetime),*]
+                        [[$(#[$($attr)*])*] $name [$($($gen)*)?] [$($($call)+)?]
+                         ($($arg: $ty),*) [$out] [$($($where)*)?]] [$d($d replacement)*] }
+                };
+            )*
+            (@entry [$d($d runtime:tt)*] $d mode:tt $d lifetime:tt [$d bad:ident] $d replacement:tt) => {
+                compile_error!(concat!("unknown dependency: ", stringify!($d bad)));
+            };
+            (@field [$d($d runtime:tt)*] $d lifetimes:tt $d signature:tt $d binder:tt $d args:tt $d out:tt [$d value:expr] [$d slot:ident]) => {
+                $d($d runtime)*::__traitstub_entries! { @closure [$d] [$($bounds)*] $d lifetimes $d signature
+                    $d binder $d args $d out [$d value] [$d slot]
+                    [$($name)*] }
+            };
+            (@stateless [$d($d runtime:tt)*] $d signature:tt [$d value:expr] [$d slot:ident]) => {
+                $d($d runtime)*::__traitstub_entries! { @stateless [$d] $d signature [$d value] [$d slot]
+                    [$($name)*] }
+            };
             $( (@valid_method $name) => {}; )*
             (@valid_method $d bad:ident) => { compile_error!(concat!("unknown dependency: ", stringify!($d bad))); };
         }
@@ -154,7 +191,7 @@ macro_rules! __traitstub_schema {
     };
     (@source [$origin:ident]) => {
         #[allow(unused_imports)]
-        use $origin as source;
+        use $origin::{self as source};
     };
 }
 
@@ -232,8 +269,6 @@ mod tests {
                 number() -> source::deps::schema::tests::contracts::signature_scope::Count, helper;
                 read(view: &source::deps::schema::tests::contracts::signature_scope::View<'_>) -> usize, |view| view.0.len();
                 formatted[T: std::fmt::Debug](value: T) -> String, |value| format!("{value:?}");
-                #[cfg(any())]
-                unavailable[T: DoesNotExist](value: T) -> (), |_value| ();
             }
         }
         mod caller_scope {
@@ -279,6 +314,34 @@ mod tests {
                 assert_eq!(deps.clone().value(), 7);
                 fn fresh<D: Deps>(_: &D) -> D {
                     D::default()
+                }
+                assert_eq!(fresh(&deps).value(), 7);
+            }
+        }
+
+        mod default_body {
+            pub trait Reusable: Default {}
+            impl<T: Default> Reusable for T {}
+            crate::deps! { bounds = [Reusable]; value() -> u64, || 1; }
+            crate::stubs! { value => || 0; }
+            #[test]
+            fn body_overrides_support_default_through_a_supertrait() {
+                let deps = crate::defs! { value() => 7; };
+                fn fresh<T: Reusable>(_: &T) -> T {
+                    T::default()
+                }
+                assert_eq!(fresh(&deps).value(), 7);
+            }
+        }
+
+        mod implicit_default {
+            crate::deps! { value() -> u64, || 1; }
+            crate::stubs! { value => || 0; }
+            #[test]
+            fn body_overrides_support_default_without_a_contract_bound() {
+                let deps = crate::defs! { value() => 7; };
+                fn fresh<T: Default>(_: &T) -> T {
+                    T::default()
                 }
                 assert_eq!(fresh(&deps).value(), 7);
             }

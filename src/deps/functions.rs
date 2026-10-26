@@ -6,23 +6,19 @@
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_functions {
-    (@methods $context:tt [$($done:tt)*];
-     $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
-     ($($arg:ident:$ty:ty),* $(,)?) -> $out:ty $(where [$($where:tt)*])?; $($rest:tt)*) => {
-        $crate::__traitstub_functions! { @methods $context
-            [$($done)* $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
-             ($($arg:$ty),*) -> $out $(where [$($where)*])?, || ();]; $($rest)* }
+    (@methods $context:tt [];
+     $( $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
+       ($($arg:ident:$ty:ty),* $(,)?) $(-> $out:ty)? $(where [$($where:tt)*])?; )+) => {
+        $crate::__traitstub_functions! { @normalized $context;
+            $( $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
+               ($($arg:$ty),*) -> $crate::__traitstub_functions!(@output $($out)?)
+               $(where [$($where)*])?, || (); )+ }
     };
-    (@methods $context:tt $done:tt;
-     $(#[$($attr:tt)*])* $name:ident $([$($gen:tt)*])? $(call [$($call:tt)+])?
-     ($($arg:ident:$ty:ty),* $(,)?) $(where [$($where:tt)*])?; $($rest:tt)*) => {
-        $crate::__traitstub_functions! { @methods $context $done;
-            $(#[$($attr)*])* $name $([$($gen)*])? $(call [$($call)+])?
-            ($($arg:$ty),*) -> () $(where [$($where)*])?; $($rest)* }
+    (@normalized [$d:tt $origin:tt $contract:tt $export:tt $scope:tt []]; $($methods:tt)*) => {
+        $crate::__traitstub_schema! { @schema $d $origin $contract $export $scope [__functions] [] $($methods)* }
     };
-    (@methods [$d:tt $origin:tt $contract:tt $export:tt $scope:tt []] [$($done:tt)+];) => {
-        $crate::__traitstub_deps! { @entries [$d $origin $contract $export $scope [__functions] []] []; $($done)+ }
-    };
+    (@output $out:ty) => { $out };
+    (@output) => { () };
     (@methods $($bad:tt)*) => {
         compile_error!("bound functions need signatures with plain generic names and bracketed where clauses");
     };
@@ -51,13 +47,23 @@ macro_rules! __traitstub_functions {
         #[derive(Clone, Copy, Default)]
         pub struct __TraitstubProduction<__Functions>(__Functions);
         impl<__Functions> $contract for __TraitstubProduction<__Functions> {}
+        #[doc(hidden)]
+        #[derive(Clone, Copy, Default)]
+        #[allow(non_camel_case_types, clippy::builtin_type_shadow)]
+        pub struct __TraitstubStorage<$($name,)*> { $($name: $name,)* }
         const _: () = {
             $crate::__traitstub_functions! { @storage [$($name)*] }
             $( $crate::__traitstub_functions! { @bound_impl
                 [$contract] [[$($attrs)*] $name [$($gen),*] $call ($($arg:$ty),*) [$out] [$($where)*]] } )*
         };
-        $crate::__traitstub_functions! { @constructor [$contract] [$($name)*] [];
-            $( ([$($attrs)*] $name [$($gen),*] $call ($($arg:$ty),*) [$out] [$($where)*]) )* }
+        #[doc(hidden)]
+        #[allow(non_camel_case_types, clippy::builtin_type_shadow)]
+        pub fn __traitstub_bind<$($name,)*>($($name:$name),*)
+            -> __TraitstubProduction<__TraitstubStorage<$($name,)*>>
+            where $( $name: calls::__methods::$name::__Signature, )* {
+            __TraitstubProduction(__TraitstubStorage { $($name,)* })
+        }
+        pub use __traitstub_bind as $contract;
     };
     (@call_trait [$contract:ident] [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
         ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]]) => {
@@ -75,7 +81,10 @@ macro_rules! __traitstub_functions {
         pub fn __infer<__Function>(value: __Function) -> __Function
             where __Function: ::core::ops::Fn($($ty),*) -> $out { value }
     };
-    (@inference $gen:tt $args:tt $out:tt) => {};
+    (@inference $gen:tt $args:tt $out:tt) => {
+        pub trait __Signature {}
+        impl<__Function> __Signature for __Function {}
+    };
     (@infer [] [$name:ident] [$value:expr]) => { __function_schema::__methods::$name::__infer($value) };
     (@infer $gen:tt $name:tt [$value:expr]) => { $value };
     // Keep field type parameters away from source signatures (a dependency may
@@ -84,18 +93,11 @@ macro_rules! __traitstub_functions {
         #[allow(dead_code, non_camel_case_types)]
         trait __Storage { $(type $name; fn $name(&self) -> &Self::$name;)* }
         #[allow(non_camel_case_types, clippy::builtin_type_shadow)]
-        impl<$($name,)*> __Storage for ($($name,)*) {
-            $crate::__traitstub_functions! { @getters [] ; $($name)* }
+        impl<$($name,)*> __Storage for __TraitstubStorage<$($name,)*> {
+            $( type $name = $name;
+               fn $name(&self) -> &Self::$name { &self.$name } )*
         }
     };
-    (@getters [$($previous:tt)*]; $name:ident $($rest:ident)*) => {
-        type $name = $name;
-        fn $name(&self) -> &Self::$name {
-            let ($($previous,)* value, ..) = self; value
-        }
-        $crate::__traitstub_functions! { @getters [$($previous)* _]; $($rest)* }
-    };
-    (@getters $previous:tt;) => {};
     (@bound_impl [$contract:ident] [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
         ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]]) => {
         $($attrs)* impl<$($gen,)* __Functions> calls::$name<$($gen),*> for __TraitstubProduction<__Functions>
@@ -103,25 +105,6 @@ macro_rules! __traitstub_functions {
             <__Functions as __Storage>::$name: ::core::ops::Fn($($ty),*) -> $out, $($where)* {
             fn __call(&self, $($arg:$ty),*) -> $out { (self.0.$name())($($arg),*) }
         }
-    };
-    // Concrete functions provide contextual closure typing at construction.
-    // Generic functions are checked at calls, after their generic types are known.
-    (@constructor $contract:tt $names:tt [$($bounds:tt)*];
-     ($attrs:tt $name:ident [] $call:tt ($($arg:ident:$ty:ty),*) [$out:ty] $where:tt) $($rest:tt)*) => {
-        $crate::__traitstub_functions! { @constructor $contract $names
-            [$($bounds)* $name: calls::__methods::$name::__Signature,]; $($rest)* }
-    };
-    (@constructor $contract:tt $names:tt $bounds:tt; $signature:tt $($rest:tt)*) => {
-        $crate::__traitstub_functions! { @constructor $contract $names $bounds; $($rest)* }
-    };
-    (@constructor [$contract:ident] [$($name:ident)*] [$($bounds:tt)*];) => {
-        #[doc(hidden)]
-        #[allow(non_camel_case_types, clippy::builtin_type_shadow)]
-        pub fn __traitstub_bind<$($name,)*>($($name:$name),*)
-            -> __TraitstubProduction<($($name,)*)> where $($bounds)* {
-            __TraitstubProduction(($($name,)*))
-        }
-        pub use __traitstub_bind as $contract;
     };
 }
 

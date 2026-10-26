@@ -1,43 +1,32 @@
-//! Collect typed Fn captures and generate their inline storage.
+//! Reuse declared or explicit Fn signatures and generate inline capture storage.
 //!
-//! Collection preserves declaration order and accumulates predicates, fields,
-//! initializers and replacement markers. Separate capture storage prevents
+//! Signature helpers process one override at a time. Separate storage prevents
 //! dependency names from shadowing types in callable signatures.
 
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __traitstub_captures {
-    // --- @collect: accumulate capture predicates, fields, initializers and replacements ---
-    (@collect $context:tt $target:tt $choices:tt $lifetimes:tt
-     [$($predicate:tt)*] [$($field:tt)*] [$($init:tt)*] [$($methods:tt)*];) => {
-        $crate::__traitstub_layer! { @emit $context $target $choices $lifetimes [$($predicate)*]
-            [$($field)*] [$($init)*] [$($methods)*]
-        }
+    (@inferred [[select $mode:tt $d:tt $lifetimes:tt $signature:tt]] $replacement:tt) => {
+        $crate::__traitstub_entries! { @select $mode $d $lifetimes $signature $replacement }
     };
-    (@collect [$root:tt $contract:tt $scope:tt [$($bounds:tt)*] $assoc:tt $methods:tt $defaults:tt $path:tt]
-     $target:tt $choices:tt [$($lifetime:lifetime),*]
-     [$($predicate:tt)*] [$($field:tt)*] [$($init:tt)*] [$($overrides:tt)*]
-     ; ($name:ident [capture [$($binder:tt)*] [$($args:ty),*] [$out:ty] [$value:expr]]) $($rest:tt)*) => {
-        $crate::__traitstub_captures! { @collect [$root $contract $scope [$($bounds)*] $assoc $methods $defaults $path]
-            $target $choices [$($lifetime),*]
-            [$($predicate)* <__Functions as __CaptureCalls>::$name: $($binder)* ::core::ops::Fn($($args),*) -> $out + $($bounds)*,]
-            [$($field)* $name]
-            [$($init)* $name: {
-                fn typed<$($lifetime,)* __Function>(value: __Function) -> __Function
-                where __Function: $($binder)* ::core::ops::Fn($($args),*) -> $out + $($bounds)* { value }
-                typed($value)
-            },]
-            [$($overrides)* ($name [capture])]; $($rest)*
-        }
+    // The result family is normalized by Rust using a receiver-like reference.
+    // Static receiver lifetimes preserve the explicit-fixture rule for results;
+    // input lifetimes remain higher-ranked for functions such as trim.
+    (@signature $state:tt [$name:ident] [] $args:tt $where:tt [$value:expr]) => {
+        $crate::__traitstub_captures! { @inferred $state
+            [capture [] $args [__callers::$name::__StaticResult] [$value]] }
     };
-    (@collect $context:tt $target:tt $choices:tt $lifetimes:tt
-     $predicate:tt $field:tt $init:tt [$($methods:tt)*];
-     ($name:ident [$($replacement:tt)*]) $($rest:tt)*) => {
-        $crate::__traitstub_captures! { @collect $context $target $choices $lifetimes $predicate $field $init
-            [$($methods)* ($name [$($replacement)*])]; $($rest)*
-        }
+    (@signature $state:tt [$name:ident] [$($lifetime:lifetime),+ $(,)?] [] [] [$value:expr]) => {
+        $crate::__traitstub_captures! { @inferred $state
+            [capture [] [] [__callers::$name::__StaticResult] [$value]] }
     };
-
+    (@signature $state:tt [$name:ident] [$($lifetime:lifetime),+ $(,)?] $args:tt [] [$value:expr]) => {
+        $crate::__traitstub_captures! { @inferred $state
+            [capture [for<$($lifetime),+>] $args [__callers::$name::__Result<'static, $($lifetime),+>] [$value]] }
+    };
+    (@signature $state:tt $name:tt $gen:tt $args:tt $where:tt [$value:expr]) => {
+        $crate::__traitstub_captures! { @inferred $state [body $value] }
+    };
     // --- @storage: store closures without shadowing signature types with field names ---
     // The only generic parameters named after dependencies live in this small
     // storage impl. Typed Fn signatures elsewhere refer to projected types, so a
@@ -62,6 +51,57 @@ macro_rules! __traitstub_captures {
 mod tests {
     // Each scenario intentionally uses only part of its generated contract.
     #![allow(dead_code, unused_imports)]
+
+    mod inferred_signatures {
+        use std::cell::RefCell;
+
+        crate::deps! {
+            write(value: &str, output: &mut String) -> Result<usize, &'static str>,
+                |value, output| { output.push_str(value); Ok(value.len()) };
+            count() -> usize, || 0;
+            label() -> &str, || "production";
+            copy[T: Clone](value: T) -> (T, T), |value| (value.clone(), value);
+        }
+        crate::stubs! {
+            write => |_, _| Ok(0);
+            count => || 0;
+            label => || "stub";
+            copy => |value| (value.clone(), value);
+        }
+
+        #[test]
+        fn shorthand_move_captures_can_own_test_data() {
+            fn configured() -> impl Deps {
+                let values = String::from("abc");
+                crate::defs! { count => move || values.len(); }
+            }
+            assert_eq!(configured().count(), 3);
+        }
+
+        #[test]
+        fn shorthand_captures_reuse_declared_types_and_preserve_other_methods() {
+            let calls = RefCell::new(Vec::new());
+            let deps = crate::defs! {
+                write => |value, output| {
+                    calls.borrow_mut().push(value.to_owned());
+                    output.push_str(value);
+                    Ok(value.len())
+                };
+                count => || calls.borrow().len();
+                label => || "override";
+                copy => |value| (value.clone(), value);
+            };
+            let mut output = String::new();
+            assert_eq!(deps.write("first", &mut output), Ok(5));
+            let next = crate::defs! { target = deps; count => || 99; };
+            assert_eq!(next.write("second", &mut output), Ok(6));
+            assert_eq!(output, "firstsecond");
+            assert_eq!(*calls.borrow(), ["first", "second"]);
+            assert_eq!((deps.count(), next.count(), Defs.count()), (2, 99, 0));
+            assert_eq!(next.label(), "override");
+            assert_eq!(next.copy(String::from("x")), ("x".into(), "x".into()));
+        }
+    }
 
     mod borrowed_batches {
 
@@ -155,6 +195,21 @@ mod tests {
             trim => |value| value;
         }
         #[test]
+        fn shorthand_captures_reuse_declared_input_lifetimes() {
+            let calls = std::cell::Cell::new(0);
+            let deps = crate::defs! {
+                trim => |value| {
+                    calls.set(calls.get() + 1);
+                    value.trim_start()
+                };
+            };
+            let input = String::from(" hi ");
+            let result = deps.trim(&input);
+            assert_eq!(result, "hi ");
+            assert_eq!(result.as_ptr(), input[1..].as_ptr());
+            assert_eq!(calls.get(), 1);
+        }
+        #[test]
         fn captured_closures_can_preserve_input_lifetimes() {
             let calls = std::cell::Cell::new(0);
             {
@@ -199,7 +254,7 @@ mod tests {
             let calls = AtomicUsize::new(0);
             let deps = crate::defs! {
                 spawn(run) => std::thread::spawn(run);
-                observe(value: usize) -> usize => |value| { calls.fetch_add(1, Ordering::Relaxed); value };
+                observe => |value| { calls.fetch_add(1, Ordering::Relaxed); value };
             };
             std::thread::scope(|scope| {
                 let a = scope.spawn(|| deps.observe(1));

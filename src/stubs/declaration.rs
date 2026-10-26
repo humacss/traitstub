@@ -40,11 +40,10 @@
 /// Exported defaults use `contract = path::Deps; export = unique_name; name =
 /// TestStubs; scope = crate::module;` (the default name may be omitted).
 /// Export headers are needed only when those defaults cross a crate boundary.
-/// A collection whose methods are all disabled by `cfg` needs no stubs.
 ///
 /// # Missing or invalid stubs
 ///
-/// Every active dependency needs a stub, and each name must appear only once:
+/// Every dependency needs a stub, and each name must appear only once:
 ///
 /// ```compile_fail
 /// traitstub::deps! { value() -> u64, || 1; }
@@ -107,7 +106,7 @@ macro_rules! __traitstub_stubs {
 
     // --- @types: collect type selections, then ask the contract to replay signatures ---
     (@types [$($contract:ident)::+] $name:tt $export:tt $origin:tt $scope:tt $choices:tt; $($rest:tt)*) => {
-        $($contract)::+! { @defaults [$crate] $name $export $origin $scope $choices [$($rest)*] }
+        $($contract)::+! { @defaults [$crate] $name $export $origin $scope [] [$($rest)*] }
     };
 
     // --- @defaults: receive the schema and begin normalizing user stubs ---
@@ -118,30 +117,31 @@ macro_rules! __traitstub_stubs {
              [$name] [$export] [$default_origin] [$($default_scope)*] [$($choices)*]] []; $($overrides)* }
     };
 
-    // --- @parse: normalize stub expressions and raw methods into named replacements ---
-    (@parse [$($context:tt)*] [$($done:tt)*];) => {
-        $crate::__traitstub_stubs! { @emit $($context)* [$($done)*] }
+    // Match the whole list; each entry is normalized independently later.
+    (@parse [$($context:tt)*] [];
+     $( $name:ident $(($($args:tt)*))? $({$method:item})? $(=> $value:expr;)? )* $(;)?) => {
+        $crate::__traitstub_stubs! { @emit $($context)*
+            [$(($name [entry [$name $(($($args)*))? $({$method})? $(=> $value;)?]]))*] }
     };
-    (@parse [$($context:tt)*] [$($done:tt)*]; $name:ident($($arg:ident),*) => $body:expr; $($rest:tt)*) => {
-        $crate::__traitstub_stubs! { @parse [$($context)*] [$($done)* ($name [body |$($arg),*| $body])]; $($rest)* }
+    (@parse $context:tt []; $($entries:tt)+) => {
+        $crate::__traitstub_stubs! { @terminated $context; $($entries)+ ; }
     };
-    (@parse [$($context:tt)*] [$($done:tt)*]; $name:ident => $value:expr; $($rest:tt)*) => {
-        $crate::__traitstub_stubs! { @parse [$($context)*] [$($done)* ($name [body $value])]; $($rest)* }
+    (@terminated $context:tt;
+     $( $name:ident $(($($args:tt)*))? $({$method:item})? $(=> $value:expr;)? )* $(;)?) => {
+        $crate::__traitstub_stubs! { @parse $context [];
+            $( $name $(($($args)*))? $({$method})? $(=> $value;)? )* }
     };
-    (@parse [$($context:tt)*] [$($done:tt)*]; $name:ident($($arg:ident),*) => $body:expr) => {
-        $crate::__traitstub_stubs! { @parse [$($context)*] [$($done)*]; $name($($arg),*) => $body; }
-    };
-    (@parse [$($context:tt)*] [$($done:tt)*]; $name:ident => $value:expr) => {
-        $crate::__traitstub_stubs! { @parse [$($context)*] [$($done)*]; $name => $value; }
-    };
-    (@parse [$($context:tt)*] [$($done:tt)*]; $name:ident { $method:item } $($rest:tt)*) => {
-        $crate::__traitstub_stubs! { @parse [$($context)*] [$($done)* ($name [method $method])]; $($rest)* }
-    };
+    (@terminated $($bad:tt)*) => { compile_error!("stubs! expects every dependency's stub"); };
 
-    (@parse $($bad:tt)*) => {
-        compile_error!("stubs! expects name => closure, name(arguments) => body, or a raw method for every active dependency");
+    (@entry [$kind:ident] [$name:ident => $value:expr;]) => {
+        $crate::__traitstub_methods! { @selector [$] [$kind] [$name] [body $value] }
     };
-
+    (@entry [$kind:ident] [$name:ident($($arg:ident),*) => $value:expr;]) => {
+        $crate::__traitstub_methods! { @selector [$] [$kind] [$name] [body |$($arg),*| $value] }
+    };
+    (@entry [$kind:ident] [$name:ident {$method:item}]) => {
+        $crate::__traitstub_methods! { @selector [$] [$kind] [$name] [method $method] }
+    };
     // --- @emit: generate the shared implementation and exported default metadata ---
     (@emit $d:tt $root:tt $contract:tt $scope:tt $bounds:tt $assoc:tt $methods:tt $name:tt $export:tt [__local] $default_scope:tt $choices:tt $overrides:tt) => {
         $crate::__traitstub_stubs! { @emit_local $d $root $contract $scope $bounds $assoc $methods $name $export [__local] $default_scope $choices $overrides }
@@ -186,8 +186,8 @@ macro_rules! __traitstub_stubs {
         pub(crate) use $export as $name;
     };
 
-    (@implementation $root:tt $contract:tt $scope:tt $name:tt [__functions] [] [] $methods:tt $overrides:tt) => {
-        $crate::__traitstub_function_stubs! { @implementation $root $contract $scope $name $methods $overrides }
+    (@implementation $root:tt $contract:tt $scope:tt $name:tt [__functions] [] $lookup:tt $methods:tt $overrides:tt) => {
+        $crate::__traitstub_function_stubs! { @implementation $root $contract $scope $name $lookup $methods $overrides }
     };
     // --- @implementation: validate names and build the zero-sized stub implementation ---
     (@implementation [$root:ident] [$contract:ident] [$($scope:ident)*] [$name:ident] $bounds:tt []
@@ -196,6 +196,7 @@ macro_rules! __traitstub_stubs {
         pub struct $name;
         const _: () = {
             $crate::__traitstub_methods! { @import_schema [$root] [$($scope)*] [$contract] }
+            $crate::__traitstub_methods! { @selectors [named] [$($methods)*] [$(($changed [$($replacement)*]))*] }
             // Rust rejects duplicate fields even if no method is ever called.
             #[allow(dead_code)] struct __UniqueMethods { $($changed: (),)* }
             $(__schema!(@valid_method $changed);)*

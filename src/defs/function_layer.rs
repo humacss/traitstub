@@ -3,6 +3,7 @@
 #[macro_export]
 macro_rules! __traitstub_function_layer {
     (@emit $methods:tt $base:tt $overrides:tt) => {
+        $crate::__traitstub_methods! { @selectors [function_layer] $methods $overrides }
         #[derive(Clone, Copy, Default)]
         struct __Layer<__Base, __Functions> { #[allow(dead_code)] base: __Base, replacement: __Functions }
         impl<__Base: __schema, __Functions> __schema for __Layer<__Base, __Functions> {}

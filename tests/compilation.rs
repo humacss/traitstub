@@ -1,4 +1,4 @@
-//! Real compiler boundaries: rejected inputs, exported contracts and feature scope.
+//! Real compiler boundaries: rejected inputs, exported contracts.
 //! Each case owns its source programs and temporary build outputs. No Cargo
 //! subprocess, separate test packages or shared setup files are needed.
 
@@ -45,7 +45,7 @@ fn exported_contracts_need_no_procedural_metadata_or_source_imports() {
     assert_eq!(Defs.value(), std::path::PathBuf::from("shared"));
     let name = String::from("fixture");
     let deps =
-        core_alias::defs! { value() -> std::path::PathBuf => || std::path::PathBuf::from(&name); };
+        core_alias::defs! { value => || std::path::PathBuf::from(&name); };
     assert_eq!(deps.value(), std::path::PathBuf::from("fixture"));
 }
 
@@ -62,7 +62,7 @@ mod typed {
     fn imported_schemas_and_named_defaults_keep_both_crates() {
         let calls = std::cell::Cell::new(0);
         let deps = core_alias::defs! {
-            save(value: provider::typed::Value) -> u64 => |value| { calls.set(calls.get() + 1); value.0 * 2 };
+            save => |value| { calls.set(calls.get() + 1); value.0 * 2 };
             copy(value) => (value.clone(), value);
         };
         assert_eq!(deps.save(deps.load(1)), 4);
@@ -124,24 +124,6 @@ pub mod api {
     }
 }
 
-// Provider enables present; consumer enables consumer_only. Conditions must be
-// resolved here, not evaluated against the consumer's unrelated feature set.
-pub mod conditional {
-    renamed::deps! {
-        export = conditional_contract;
-        scope = crate::conditional;
-        #[cfg(feature = "present",)]
-        enabled() -> u64, || 1;
-        #[cfg(feature = "consumer_only")]
-        disabled() -> u64, || 99;
-        #[cfg_attr(feature = "present", cfg(all()))]
-        nested() -> u64, || 2;
-        #[cfg_attr(feature = "present", cfg(any()), allow(dead_code))]
-        nested_disabled() -> u64, || 99;
-        #[cfg_attr(not(feature = "present"), cfg(any()))]
-        unconditional() -> u64, || 3;
-    }
-}
 "###;
 
 const GENERIC_CONSUMER: &str = r###"
@@ -182,26 +164,6 @@ fn qualified_contract_paths_work_for_explicit_layers() {
     assert_eq!(deps.path(), std::path::PathBuf::from("overridden"));
 }
 
-#[cfg(test)]
-mod conditional {
-    use provider::conditional::Deps;
-    renamed::stubs! {
-        contract = provider::conditional::Deps;
-        enabled => || 10;
-        nested => || 20;
-        unconditional => || 30;
-    }
-    #[test]
-    fn exported_conditions_use_provider_features() {
-        let deps = renamed::defs! { enabled() => 11; };
-        assert_eq!((deps.enabled(), deps.nested(), deps.unconditional()), (11, 20, 30));
-        let deps = renamed::defs! {
-            contract = provider::conditional::Deps; target = provider::conditional::Deps;
-            nested() => 21;
-        };
-        assert_eq!((deps.enabled(), deps.nested()), (1, 21));
-    }
-}
 "###;
 
 const INCOMPLETE_STUBS: &str = r###"
@@ -251,8 +213,6 @@ pub mod api {
         query[H](id: u64) -> Result<Option<H::Value>, H::Error>
             where [H: source::api::Host + ?Sized];
         label() -> String;
-        #[cfg(any())]
-        unavailable(value: DoesNotExist) -> DoesNotExist;
     }
 }
 pub mod shared {
@@ -455,33 +415,20 @@ fn invalid_definitions_fail_even_when_unused(#[case] source: &str, #[case] expec
 }
 
 #[rstest]
-#[case::ordinary_and_concrete_types(
-    DECLARATIVE_PROVIDER,
-    DECLARATIVE_CONSUMER,
-    "core_alias",
-    false
-)]
-#[case::bound_functions(FUNCTION_PROVIDER, FUNCTION_CONSUMER, "core_alias", false)]
-#[case::generics_and_provider_features(GENERIC_PROVIDER, GENERIC_CONSUMER, "renamed", false)]
-#[case::different_consumer_features(GENERIC_PROVIDER, GENERIC_CONSUMER, "renamed", true)]
+#[case::ordinary_and_concrete_types(DECLARATIVE_PROVIDER, DECLARATIVE_CONSUMER, "core_alias")]
+#[case::bound_functions(FUNCTION_PROVIDER, FUNCTION_CONSUMER, "core_alias")]
+#[case::generic_functions(GENERIC_PROVIDER, GENERIC_CONSUMER, "renamed")]
 fn exported_contracts_work_between_independent_crates(
     #[case] provider: &str,
     #[case] consumer: &str,
     #[case] alias: &str,
-    #[case] consumer_feature: bool,
 ) {
     let compiler = Compiler::new();
     let provider = compiler.source("provider", provider);
     let provider_library = compiler.directory.join("libprovider.rlib");
     let output = compiler
         .command(&provider, "provider")
-        .args([
-            "--crate-type",
-            "rlib",
-            "--cfg",
-            "feature=\"present\"",
-            "--extern",
-        ])
+        .args(["--crate-type", "rlib", "--extern"])
         .arg(format!("{alias}={}", compiler.library.display()))
         .arg("-o")
         .arg(&provider_library)
@@ -501,11 +448,122 @@ fn exported_contracts_work_between_independent_crates(
         .arg(format!("provider={}", provider_library.display()))
         .arg("-o")
         .arg(&executable);
-    if consumer_feature {
-        command.args(["--cfg", "feature=\"consumer_only\""]);
-    }
     assert_success(command.output().unwrap());
     // Run the consumer's behavioral assertions, rather than only checking that
     // the exported macros compile. No assertions are disabled or moved to examples.
     assert_success(Command::new(executable).arg("--quiet").output().unwrap());
+}
+
+// These must compile with the consumer's default macro recursion limit.
+#[rstest]
+#[case::ten_functions(10)]
+#[case::twenty_functions(20)]
+#[case::one_hundred_functions(100)]
+fn ordinary_collections_keep_the_default_recursion_limit(#[case] count: usize) {
+    let declarations = (0..count)
+        .map(|i| {
+            format!(
+                "#[doc = \"A dependency\"] f{i}() -> Result<Option<Vec<u64>>, ()>, || Ok(None);"
+            )
+        })
+        .collect::<String>();
+    let source = format!("traitstub::deps! {{ {declarations} }}");
+    let compiler = Compiler::new();
+    let source = compiler.source("collection", &source);
+    let output = compiler
+        .command(&source, "collection")
+        .args(["--crate-type", "lib", "--emit", "metadata", "--extern"])
+        .arg(format!("traitstub={}", compiler.library.display()))
+        .arg("-o")
+        .arg(compiler.directory.join("collection.rmeta"))
+        .output()
+        .unwrap();
+    assert_success(output);
+}
+
+#[rstest]
+#[case::ten_overrides(10, false)]
+#[case::twenty_overrides(20, false)]
+#[case::one_hundred_overrides(100, false)]
+#[case::ten_bound_functions(10, true)]
+#[case::twenty_bound_functions(20, true)]
+#[case::one_hundred_bound_functions(100, true)]
+fn shorthand_overrides_keep_the_default_recursion_limit(
+    #[case] count: usize,
+    #[case] bound_functions: bool,
+) {
+    let declarations = (0..count)
+        .map(|i| {
+            if bound_functions {
+                format!("f{i}(value: u64) -> u64;")
+            } else {
+                format!("f{i}(value: u64) -> u64, |value| value;")
+            }
+        })
+        .collect::<String>();
+    let stubs = (0..count)
+        .map(|i| format!("f{i} => |value| value;"))
+        .collect::<String>();
+    let overrides = (0..count)
+        .map(|i| format!("f{i} => |value| value + offset + {i};"))
+        .collect::<String>();
+    let assertions = (0..count)
+        .map(|i| format!("assert_eq!(deps.f{i}(2), 9 + {i});"))
+        .collect::<String>();
+    let source = format!(
+        "traitstub::deps! {{ {declarations} }}
+         traitstub::stubs! {{ {stubs} }}
+         #[test] fn check() {{
+             let offset = 7;
+             let deps = traitstub::defs! {{ {overrides} }};
+             {assertions}
+         }}"
+    );
+    let compiler = Compiler::new();
+    let source = compiler.source("many_overrides", &source);
+    let executable = compiler.directory.join("many_overrides");
+    assert_success(
+        compiler
+            .command(&source, "many_overrides")
+            .args(["--test", "--extern"])
+            .arg(format!("traitstub={}", compiler.library.display()))
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap(),
+    );
+    assert_success(Command::new(executable).output().unwrap());
+}
+
+#[rstest]
+#[case::one_hundred_functions(100)]
+fn bound_collections_keep_the_default_recursion_limit(#[case] count: usize) {
+    let declarations = (0..count)
+        .map(|i| format!("f{i}(value: u64) -> u64;"))
+        .collect::<String>();
+    let stubs = (0..count)
+        .map(|i| format!("f{i} => |value| value + {i};"))
+        .collect::<String>();
+    let assertions = (0..count)
+        .map(|i| format!("assert_eq!(Defs.f{i}(7), 7 + {i});"))
+        .collect::<String>();
+    let source = format!(
+        "traitstub::deps! {{ {declarations} }}
+         traitstub::stubs! {{ {stubs} }}
+         #[test] fn check() {{ {assertions} }}"
+    );
+    let compiler = Compiler::new();
+    let source = compiler.source("many_bound_functions", &source);
+    let executable = compiler.directory.join("many_bound_functions");
+    assert_success(
+        compiler
+            .command(&source, "many_bound_functions")
+            .args(["--test", "--extern"])
+            .arg(format!("traitstub={}", compiler.library.display()))
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap(),
+    );
+    assert_success(Command::new(executable).output().unwrap());
 }

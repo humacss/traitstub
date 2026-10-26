@@ -1,7 +1,8 @@
 //! Parse instance-local overrides and select their base and capture lifetimes.
 //!
 //! defs! loads schema metadata, then @headers and @parse normalize the request.
-//! Captures collects typed closures; layer emits the new implementation.
+//! Repetition dispatches complete entries; per-entry helpers initialize captures
+//! and layer emits the new implementation.
 //! Replacements are `(name [body expression])`, `(name [method RustItem])` or
 //! `(name [capture [binder] [argument types] [result type] [closure]])`.
 
@@ -27,11 +28,18 @@
 ///
 /// # Using data from the test
 ///
-/// `name => closure;` and `name(arguments) => body;` reuse the schema signature
-/// and must be stateless in ordinary collections. A captured closure uses an explicit callable signature:
-/// `value() -> u64 => || calls.get();`. Captures implement `Fn`; use test-owned
-/// `Cell`/`RefCell` for mutable state, or atomics/synchronization across threads.
-/// Captured signatures use concrete types or accessible type aliases.
+/// `name => |arguments| body;` reuses the declared signature and can capture
+/// test data using the declared types and input lifetimes. Captures implement
+/// `Fn`; use test-owned `Cell`/`RefCell` for mutable state, or
+/// atomics/synchronization across threads.
+///
+/// `name(arguments) => body;` remains stateless, as do type/const-generic overrides.
+/// Borrowed-result shorthand stores its closure too. A result such as `&str`
+/// without a named lifetime must be static in shorthand. An explicit callable
+/// signature such as `current() -> &'fixture str => || fixture.as_str();` handles
+/// captured result lifetimes. For `Default`, use the stateless body form;
+/// closure shorthand always stores the closure when its signature supports captures.
+/// Explicit signatures remain supported and use concrete types or aliases.
 /// Ordinary generic type/const methods use body overrides or full methods.
 ///
 /// `capture ['fixture];` introduces a borrowed fixture lifetime, without creating
@@ -43,6 +51,18 @@
 /// replacement supports the generic types for which its closure is callable;
 /// other functions retain the capabilities of their base. Replacing a function
 /// does not require the base to support that replacement's generic arguments.
+///
+/// # Default implementations
+///
+/// Use `value() => 7;` when the override must support `Default`. Closure
+/// shorthand stores a closure, and closures do not implement `Default`, even
+/// when they capture nothing:
+///
+/// ```compile_fail
+/// traitstub::deps! { bounds = [Default]; value() -> u64, || 0; }
+/// traitstub::stubs! { value => || 0; }
+/// let deps = traitstub::defs! { value => || 7; };
+/// ```
 ///
 /// # Choosing a base
 ///
@@ -66,7 +86,7 @@
 /// traitstub::stubs! { value => || 0; }
 /// # fn main() {
 /// let mut calls = 0;
-/// let deps = traitstub::defs! { value() -> u64 => || { calls += 1; calls }; };
+/// let deps = traitstub::defs! { value => || { calls += 1; calls }; };
 /// let _ = deps.value();
 /// # }
 /// ```
@@ -95,7 +115,7 @@
 /// traitstub::stubs! { value => || 0; }
 /// # fn main() {
 /// let value = std::rc::Rc::new(7);
-/// let deps = traitstub::defs! { value() -> u64 => move || *value; };
+/// let deps = traitstub::defs! { value => move || *value; };
 /// std::thread::scope(|scope| { scope.spawn(|| deps.value()); });
 /// # }
 /// ```
@@ -122,7 +142,7 @@ macro_rules! defs {
     };
 
     (contract = $($contract:ident)::+; target = $target:expr; $($request:tt)*) => {
-        $($contract)::+! { @instance [$crate] [target = $target; $($request)*] }
+        $($contract)::+! { @instance [$crate] [lookup = $($contract)::+; target = $target; $($request)*] }
     };
     (contract = $($contract:ident)::+; $($bad:tt)*) => {
         compile_error!("an explicit contract needs target = value;");
@@ -137,10 +157,14 @@ macro_rules! __traitstub_defs {
         $crate::__traitstub_function_overrides! { @instance [$root $contract $scope $assoc $methods] [$($request)*] }
     };
     // --- @instance: receive the schema and start with Defs as the default base ---
-    (@instance $root:tt $contract:tt $scope:tt $bounds:tt $assoc:tt $methods:tt $defaults:tt $path:tt [$($request:tt)*]) => {
-        $crate::__traitstub_defs! { @headers [$root $contract $scope $bounds $assoc $methods $defaults $path] [Defs] [] []; $($request)* }
+    (@instance $root:tt [$contract:ident] $scope:tt $bounds:tt $assoc:tt $methods:tt $defaults:tt $path:tt [$($request:tt)*]) => {
+        $crate::__traitstub_defs! { @headers [$root [$contract] $scope $bounds $assoc $methods $defaults $path] [Defs] [$contract] []; $($request)* }
     };
 
+    (@headers $context:tt $target:tt $choices:tt $lifetimes:tt;
+        lookup = $($path:ident)::+; $($rest:tt)*) => {
+        $crate::__traitstub_defs! { @headers $context $target [$($path)::+] $lifetimes; $($rest)* }
+    };
     // --- @headers: read the target, type selections and captured lifetimes ---
     (@headers $context:tt $target:tt $choices:tt $lifetime:tt; target = $value:expr; $($rest:tt)*) => {
         $crate::__traitstub_defs! { @headers $context [$value] $choices $lifetime; $($rest)* }
@@ -152,58 +176,32 @@ macro_rules! __traitstub_defs {
         $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes []; $($entries)* }
     };
 
-    // --- @parse: normalize heterogeneous overrides; reject empty/duplicate batches ---
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$($done:tt)*];
-     $name:ident($($arg:ident),*) => $body:expr; $($rest:tt)*) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes
-            [$($done)* ($name [body |$($arg),*| $body])]; $($rest)* }
+    // Repetition separates entries. Helpers process one complete entry each.
+    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [];
+     $($entries:tt)*) => {
+        $crate::__traitstub_defs! { @batch $context $target $choices $lifetimes; $($entries)* }
     };
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$($done:tt)*];
-     $name:ident => $body:expr; $($rest:tt)*) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes
-            [$($done)* ($name [body $body])]; $($rest)* }
-    };
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$($done:tt)*];
-     $name:ident { $method:item } $($rest:tt)*) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes
-            [$($done)* ($name [method $method])]; $($rest)* }
-    };
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$($done:tt)*];
-     for [$($binder:lifetime),+] $name:ident($($arg:ident: $ty:ty),*) -> $out:ty => $value:expr; $($rest:tt)*) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes
-            [$($done)* ($name [capture [for<$($binder),+>] [$($ty),*] [$out] [$value]])]; $($rest)* }
-    };
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$($done:tt)*];
-     $name:ident($($arg:ident: $ty:ty),*) -> $out:ty => $value:expr; $($rest:tt)*) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes
-            [$($done)* ($name [capture [] [$($ty),*] [$out] [$value]])]; $($rest)* }
-    };
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$($done:tt)*]; $($tail:tt)+) => {
-        $crate::__traitstub_defs! { @parse_last $context $target $choices $lifetimes [$($done)*]; $($tail)+ }
-    };
-    (@parse_last $context:tt $target:tt $choices:tt $lifetimes:tt $done:tt;
-     $name:ident($($arg:ident),*) => $body:expr) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes $done; $name($($arg),*) => $body; }
-    };
-    (@parse_last $context:tt $target:tt $choices:tt $lifetimes:tt $done:tt;
-     $name:ident => $body:expr) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes $done; $name => $body; }
-    };
-    (@parse_last $context:tt $target:tt $choices:tt $lifetimes:tt $done:tt;
-     $(for [$($binder:lifetime),+])? $name:ident($($arg:ident: $ty:ty),*) -> $out:ty => $value:expr) => {
-        $crate::__traitstub_defs! { @parse $context $target $choices $lifetimes $done;
-            $(for [$($binder),+])? $name($($arg: $ty),*) -> $out => $value; }
-    };
-    (@parse $context:tt $target:tt $choices:tt $lifetimes:tt [$(($name:ident [$($replacement:tt)*]))+];) => {{
-        #[allow(dead_code)] struct __UniqueOverrides { $($name: (),)+ }
-        $crate::__traitstub_captures! { @collect $context $target $choices $lifetimes [] [] [] [];
-            $(($name [$($replacement)*]))+
-        }
+    (@batch $context:tt $target:tt $choices:tt $lifetimes:tt;
+     $( $first:ident $([$($binder:lifetime),+] $actual:ident)?
+        $(($($args:tt)*))? $(-> $out:ty)? $({$method:item})?
+        $(=> $value:expr;)? )+ $(;)?) => {{
+        $crate::__traitstub_layer! { @prepare $context $target $choices $lifetimes
+            [$( [$first $([$($binder),+] $actual)? $(($($args)*))? $(-> $out)?
+                 $({$method})? $(=> $value;)?] )+] }
     }};
-    (@parse_last $($bad:tt)*) => {
-        compile_error!("defs! expects name => closure, name(arguments) => body, a raw method, or a typed Fn closure");
+    (@batch $context:tt $target:tt $choices:tt $lifetimes:tt; $($entries:tt)+) => {
+        $crate::__traitstub_defs! { @terminated $context $target $choices $lifetimes; $($entries)+ ; }
     };
-    (@parse $($bad:tt)*) => { compile_error!("traitstub::defs! expects one or more body overrides, raw methods, or typed Fn closures"); };
+    (@terminated $context:tt $target:tt $choices:tt $lifetimes:tt;
+     $( $first:ident $([$($binder:lifetime),+] $actual:ident)?
+        $(($($args:tt)*))? $(-> $out:ty)? $({$method:item})?
+        $(=> $value:expr;)? )+ $(;)?) => {
+        $crate::__traitstub_defs! { @batch $context $target $choices $lifetimes;
+            $( $first $([$($binder),+] $actual)? $(($($args)*))? $(-> $out)?
+               $({$method})? $(=> $value;)? )+ }
+    };
+    (@terminated $($bad:tt)*) => { compile_error!("defs! expects one or more dependency overrides"); };
+
 }
 
 #[cfg(test)]

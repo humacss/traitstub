@@ -3,11 +3,12 @@
 #[macro_export]
 macro_rules! __traitstub_function_stubs {
     (@implementation [$root:ident] [$contract:ident] [$($scope:ident)*] [$name:ident]
-     $methods:tt [$(($changed:ident [$($replacement:tt)*]))*]) => {
+     $lookup:tt $methods:tt [$(($changed:ident [$($replacement:tt)*]))*]) => {
         #[derive(Clone, Copy, Default)] pub struct $name;
         const _: () = {
             $crate::__traitstub_methods! { @import_schema [$root] [$($scope)*] [$contract] }
             __schema! { @functions }
+            $crate::__traitstub_methods! { @selectors [function_stubs] $methods [$(($changed [$($replacement)*]))*] }
             impl __schema for $name {}
             #[allow(dead_code)] type __Stub = $name;
             #[allow(dead_code)] struct __UniqueMethods { $($changed: (),)* }
@@ -32,17 +33,6 @@ macro_rules! __traitstub_function_stubs {
 
 #[cfg(test)]
 mod tests {
-    crate::deps! {
-        #[cfg(any())]
-        unavailable[H](host: &H, value: DoesNotExist) -> DoesNotExist;
-    }
-    crate::stubs! {}
-    #[test]
-    fn a_fully_disabled_collection_needs_no_callables_or_stubs() {
-        fn accepts(_: &impl Deps) {}
-        accepts(&Deps());
-        accepts(&Defs);
-    }
     mod local_contract {
         mod api {
             crate::deps! { query[H](host: &H) -> usize where [H: ?Sized]; }

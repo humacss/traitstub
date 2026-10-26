@@ -48,6 +48,12 @@
 //! while other calls retain their base implementations. Types remain in function
 //! signatures; Traitstub has no associated-type declaration syntax.
 //!
+//! Short closure overrides reuse the declared argument and result types and can
+//! capture test-owned data. Explicit signatures remain available when captures
+//! need a different result lifetime. Use a stateless body override such as
+//! `value() => 7;` when the implementation needs `Default`. See [`defs!`] for
+//! generic and borrowed cases.
+//!
 //! # Examples
 //!
 //! Each file has one public entry point that uses production defaults, one private
@@ -79,3 +85,6 @@ mod defs;
 mod deps;
 mod shared;
 mod stubs;
+
+#[doc(hidden)]
+pub use defs::results::SignatureResult as __TraitstubSignatureResult;
