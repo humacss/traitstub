@@ -126,7 +126,7 @@ mod tests {
         let calls = AtomicUsize::new(0);
         let deps = traitstub::defs! {
             spawn(name, run) => std::thread::Builder::new().name(name).spawn(run);
-            observe(value: u64) -> u64 => |value| {
+            observe => |value| {
                 calls.fetch_add(1, Ordering::Relaxed);
                 value
             };

@@ -135,7 +135,7 @@ mod tests {
         // the mutable output argument is independent of the closure's captures.
         let messages = std::cell::RefCell::new(Vec::new());
         let deps = traitstub::defs! {
-            write(message: &str, output: &mut String) -> Result<(), &'static str> => |message, output| {
+            write => |message, output| {
                 messages.borrow_mut().push(message.to_owned());
                 output.push_str(&format!("recorded: {message}"));
                 Ok(())
@@ -165,7 +165,7 @@ mod tests {
     ) {
         let deps = traitstub::defs! {
             load_name => |_| " Ada ".into();
-            for ['input] trim(value: &'input str) -> &'input str => |value| clean(value);
+            trim => |value| clean(value);
         };
         let input = String::from(" Ada ");
         let result = deps.trim(&input);

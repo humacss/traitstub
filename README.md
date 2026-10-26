@@ -192,10 +192,9 @@ Declare one dependency collection per module. The closures connect it to your
 production functions and can adapt their inputs or outputs. Pass the generated
 trait directly to the code that uses it, such as `deps: &impl Deps`.
 
-`stubs!` requires a stub for every active dependency, even if a test does not use
+`stubs!` requires a stub for every dependency, even if a test does not use
 it. `defs!` replaces one or more functions and keeps the rest from its base.
 Missing stubs, duplicate names and unknown dependencies fail to compile.
-A collection with no active methods needs no stubs.
 
 | Optional syntax | Purpose |
 | --- | --- |
@@ -211,14 +210,23 @@ A collection with no active methods needs no stubs.
 | `for ['a] trim(value: &'a str) -> &'a str => closure;` | Return a reference borrowed from each input |
 | `method { fn method<T>(&self) -> usize { 42 } }` | Supply a complete Rust method instead of a closure |
 
-`name(arguments) => body;` and `name => closure;` use the declared signature.
-In ordinary collections they cannot capture test data. To borrow or own data from the test, include the
-signature: `name(argument: Type) -> Output => closure;`. Captured closures implement
-`Fn`; mutable state belongs to the test, using `Cell`, `RefCell`, atomics or other Rust
-synchronization. Captured signatures use concrete types or accessible aliases. Thread safety is checked where an instance is shared.
-Generic type/const methods use body overrides or complete methods rather than
-captured closures. All overrides in one `defs!` share an implementation, so raw
-methods can call sibling overrides through `self`. Inherited methods continue
+`name => |arguments| body;` reuses the declared signature and can capture test
+data using the declared types and input lifetimes. You do not need to repeat the
+argument and return types. Captures implement `Fn`; mutable state
+belongs to the test, using `Cell`, `RefCell`, atomics or other Rust synchronization.
+
+`name(arguments) => body;` remains stateless. Generic type/const methods use
+stateless overrides or complete methods. For captured result lifetimes, keep the
+explicit signature: `current() -> &'fixture str => || fixture.as_str();`.
+Borrowed-result shorthand stores its closure too. A result such as `&str`
+without a named lifetime must be static in shorthand. Thread safety is checked
+where an instance is shared.
+
+Use the stateless body form, such as `value() => 7;`, when the implementation
+needs `Default`, including through a supertrait. Closure shorthand stores the
+closure; it does not implement `Default`, even when it captures nothing.
+
+All overrides in one `defs!` share an implementation, so raw methods can call sibling overrides through `self`. Inherited methods continue
 to call their base's implementations.
 
 If you give shared stubs a custom name, import it as `Defs` or specify both
@@ -303,9 +311,7 @@ code.
 Within a crate, import `Deps` and `Defs` normally. To share a contract with
 another crate, add `export = unique_name; scope = crate::module;` before the
 declarations. Shared stubs need these headers only if they are also exported. Export names must be unique within the crate,
-and exported items and signature types must be public. Method `cfg` and
-`cfg_attr` conditions are evaluated in the declaring crate, so the consumer
-does not need to mirror its features.
+and exported items and signature types must be public.
 
 ## Current limitations
 

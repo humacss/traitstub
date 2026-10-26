@@ -99,7 +99,7 @@ mod tests {
     fn captured_overrides_keep_concrete_return_types() {
         let adjustment = Cell::new(1_u64);
         let deps = traitstub::defs! {
-            load(id: u64) -> Result<Option<User>, &'static str> => |id| {
+            load => |id| {
                 Ok(Some(User { id: id + adjustment.get() }))
             };
         };
@@ -131,11 +131,11 @@ mod tests {
         let reads = Cell::new(0);
         let writes = Cell::new(0);
         let deps = traitstub::defs! {
-            load(_id: u64) -> Result<Option<User>, &'static str> => |_| {
+            load => |_| {
                 reads.set(reads.get() + 1);
                 Ok(responses.borrow_mut().next().flatten())
             };
-            save(user: User) -> Result<u64, &'static str> => |user| {
+            save => |user| {
                 writes.set(writes.get() + 1);
                 Ok(user.id)
             };
