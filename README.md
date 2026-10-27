@@ -1,3 +1,8 @@
+[![Crates.io](https://img.shields.io/crates/v/traitstub.svg)](https://crates.io/crates/traitstub)
+[![Docs](https://docs.rs/traitstub/badge.svg)](https://docs.rs/traitstub)
+[![Qlty | Maintainability](https://qlty.sh/gh/humacss/projects/traitstub/maintainability.svg)](https://qlty.sh/gh/humacss/projects/traitstub)
+[![Qlty | Code Coverage](https://qlty.sh/gh/humacss/projects/traitstub/coverage.svg)](https://qlty.sh/gh/humacss/projects/traitstub)
+
 # traitstub
 
 Simple trait stubs for tests that still run your code.
