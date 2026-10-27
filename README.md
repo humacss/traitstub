@@ -48,8 +48,8 @@ There are three macros:
 | Macro | What you do | What you get |
 | --- | --- | --- |
 | `deps!` | Declare function signatures and their production implementations | A `Deps` trait and production value |
-| `stubs!` | Give every dependency a test implementation | Shared test defaults named `Defs` |
-| `defs!` | Replace the dependencies this test cares about | A new implementation based on `Defs`, or a `target` you choose |
+| `stubs!` | Give every dependency a test implementation | Shared test defaults named `Stubs` |
+| `defs!` | Replace the dependencies this test cares about | A new implementation based on `Stubs`, or a `target` you choose |
 
 Declare the dependencies and connect them to your production functions. These
 are excerpts from [common.rs](examples/common.rs), where `users` and `teams`
@@ -115,12 +115,12 @@ from the shared stubs:
 
 <!-- example: override -->
 ```rust
-let deps = traitstub::defs! {
+let defs = traitstub::defs! {
     load_name => |_| "Ada".into();
 };
 
 assert_eq!(
-    greet_with_deps(&deps, 7),
+    greet_with_deps(&defs, 7),
     Ok("Hello, Ada from Test Team!".into())
 );
 ```
@@ -245,7 +245,7 @@ closure; it does not implement `Default`, even when it captures nothing.
 All overrides in one `defs!` share an implementation, so raw methods can call sibling overrides through `self`. Inherited methods continue
 to call their base's implementations.
 
-If you give shared stubs a custom name, import it as `Defs` or specify both
+If you give shared stubs a custom name, import it as `Stubs` or specify both
 `contract` and `target`. An explicit contract also supports a handwritten base
 or a function returning `impl Contract`.
 
@@ -288,7 +288,7 @@ concrete host:
 traitstub::stubs! { query => |_, _| Ok(None); }
 
 let value = 42;
-let deps = traitstub::defs! {
+let defs = traitstub::defs! {
     query => |_: &MyHost, id| Ok(Some(value + id));
 };
 ```
@@ -324,7 +324,7 @@ with `source::` for types in the crate declaring the dependencies. Traitstub doe
 not resolve private aliases for you. The name `source` is reserved in generated
 code.
 
-Within a crate, import `Deps` and `Defs` normally. To share a contract with
+Within a crate, import `Deps` and `Stubs` normally. To share a contract with
 another crate, add `export = unique_name; scope = crate::module;` before the
 declarations. Shared stubs need these headers only if they are also exported. Export names must be unique within the crate,
 and exported items and signature types must be public.

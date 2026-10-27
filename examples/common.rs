@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn uses_complete_shared_test_defaults() {
         assert_eq!(
-            greet_with_deps(&Defs, 7),
+            greet_with_deps(&Stubs, 7),
             Ok("Hello, Test User from Test Team!".into())
         );
     }
@@ -98,12 +98,12 @@ mod tests {
     #[test]
     fn overrides_only_the_user() {
         // Unlisted functions keep their shared test implementations.
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             load_name => |_| "Ada".into();
         };
 
         assert_eq!(
-            greet_with_deps(&deps, 7),
+            greet_with_deps(&defs, 7),
             Ok("Hello, Ada from Test Team!".into())
         );
     }
@@ -114,9 +114,9 @@ mod tests {
             load_name => |_| "Ada".into();
             team_name => |_| "Admins".into();
         };
-        let deps = traitstub::defs! { target = base; team_name => |_| "Reviewers".into(); };
+        let defs = traitstub::defs! { target = base; team_name => |_| "Reviewers".into(); };
         assert_eq!(
-            greet_with_deps(&deps, 7),
+            greet_with_deps(&defs, 7),
             Ok("Hello, Ada from Reviewers!".into())
         );
         assert_eq!(
@@ -124,7 +124,7 @@ mod tests {
             Ok("Hello, Ada from Admins!".into())
         );
         assert_eq!(
-            greet_with_deps(&Defs, 7),
+            greet_with_deps(&Stubs, 7),
             Ok("Hello, Test User from Test Team!".into())
         );
     }
@@ -134,7 +134,7 @@ mod tests {
         // A typed Fn closure borrows test-owned state. RefCell handles mutation;
         // the mutable output argument is independent of the closure's captures.
         let messages = std::cell::RefCell::new(Vec::new());
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             write => |message, output| {
                 messages.borrow_mut().push(message.to_owned());
                 output.push_str(&format!("recorded: {message}"));
@@ -142,7 +142,7 @@ mod tests {
             };
         };
         assert_eq!(
-            greet_with_deps(&deps, 7),
+            greet_with_deps(&defs, 7),
             Ok("recorded: Hello, Test User from Test Team!".into())
         );
         assert_eq!(*messages.borrow(), ["Hello, Test User from Test Team!"]);
@@ -150,9 +150,9 @@ mod tests {
 
     #[test]
     fn dependency_errors_reach_the_caller() {
-        let deps = traitstub::defs! { write => |_, _| Err("output unavailable"); };
-        assert_eq!(greet_with_deps(&deps, 7), Err("output unavailable"));
-        assert!(greet_with_deps(&Defs, 7).is_ok());
+        let defs = traitstub::defs! { write => |_, _| Err("output unavailable"); };
+        assert_eq!(greet_with_deps(&defs, 7), Err("output unavailable"));
+        assert!(greet_with_deps(&Stubs, 7).is_ok());
     }
 
     #[rstest::rstest]
@@ -163,16 +163,16 @@ mod tests {
         #[case] expected: &str,
         #[case] offset: usize,
     ) {
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             load_name => |_| " Ada ".into();
             trim => |value| clean(value);
         };
         let input = String::from(" Ada ");
-        let result = deps.trim(&input);
+        let result = defs.trim(&input);
         assert_eq!(result, expected);
         assert_eq!(result.as_ptr(), input[offset..].as_ptr());
         assert_eq!(
-            greet_with_deps(&deps, 7),
+            greet_with_deps(&defs, 7),
             Ok(format!("Hello, {expected} from Test Team!"))
         );
     }
@@ -182,14 +182,14 @@ mod tests {
         // capture names a lifetime, not storage. Rust keeps this dependency
         // implementation from escaping the lifetime of salutation.
         let salutation = String::from("Welcome");
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             capture ['test];
             salutation() -> &'test str => || salutation.as_str();
         };
         assert_eq!(
-            greet_with_deps(&deps, 7),
+            greet_with_deps(&defs, 7),
             Ok("Welcome, Test User from Test Team!".into())
         );
-        assert_eq!(Defs.salutation(), "Hello");
+        assert_eq!(Stubs.salutation(), "Hello");
     }
 }

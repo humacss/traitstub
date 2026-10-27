@@ -45,7 +45,7 @@ mod tests {
             let text = String::from("hello");
             let deps = crate::defs! { query => |host: &str| host.len(); };
             assert_eq!(deps.query(text.as_str()), 5);
-            assert_eq!(Defs.query(&7_u64), 0);
+            assert_eq!(Stubs.query(&7_u64), 0);
         }
     }
 }
@@ -62,6 +62,6 @@ mod method_attribute_tests {
     crate::stubs! { value => |input| input + 1; }
     #[test]
     fn function_attributes_apply_to_shared_stub_methods() {
-        assert_eq!(Defs.value(41), 42);
+        assert_eq!(Stubs.value(41), 42);
     }
 }

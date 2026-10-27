@@ -97,7 +97,7 @@ mod tests {
             assert_eq!(next.write("second", &mut output), Ok(6));
             assert_eq!(output, "firstsecond");
             assert_eq!(*calls.borrow(), ["first", "second"]);
-            assert_eq!((deps.count(), next.count(), Defs.count()), (2, 99, 0));
+            assert_eq!((deps.count(), next.count(), Stubs.count()), (2, 99, 0));
             assert_eq!(next.label(), "override");
             assert_eq!(next.copy(String::from("x")), ("x".into(), "x".into()));
         }

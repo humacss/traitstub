@@ -30,7 +30,7 @@
 //! - Define every shared test stub with [`stubs!`].
 //! - Replace one or more functions in a test with [`defs!`].
 //!
-//! Production uses `&Deps`. Shared test stubs use `&Defs`. Individual overrides
+//! Production uses `&Deps`. Shared test stubs use `&Stubs`. Individual overrides
 //! return a value you can pass to the same function. You can keep this argument
 //! private: a public wrapper supplies production defaults, while tests inject
 //! their dependencies into the internal function. The examples below show this

@@ -39,7 +39,7 @@ fn production_and_named_defaults() {
     let first = calculate(&Deps, std::hint::black_box(7));
     let defaults = Deps;
     let second = calculate(&defaults, std::hint::black_box(7));
-    let named = calculate(&Defs, std::hint::black_box(7));
+    let named = calculate(&Stubs, std::hint::black_box(7));
     assert_eq!((first, second, named), (22, 22, 31));
 }
 
@@ -59,7 +59,7 @@ mod declarative {
             add(value: u64) -> u64 => |value| { calls.set(calls.get() + 1); value + 100 };
             double(value) => value * 2;
         };
-        let result = (Deps.add(7), Defs.add(7), deps.add(7) + deps.double(7));
+        let result = (Deps.add(7), Stubs.add(7), deps.add(7) + deps.double(7));
         assert_eq!(calls.get(), 1);
         result
     }

@@ -292,7 +292,7 @@ mod tests {
                 };
                 assert_eq!(Deps.number(), 1);
                 assert_eq!(Deps.value().0, 1);
-                assert_eq!(Defs.number(), 99);
+                assert_eq!(Stubs.number(), 99);
                 assert_eq!(deps.number(), 4);
                 assert_eq!(deps.value().0, 42);
                 assert!(deps.path().as_os_str().is_empty());

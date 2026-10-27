@@ -61,7 +61,7 @@ fn captured_overrides_specialize_one_method_without_specializing_the_collection(
     assert_eq!(calls.get(), 1);
     assert!(!deps.enabled());
     // The base remains universal, while this override supports NumericHost.
-    assert_eq!(read(&Defs, &TextHost, 7), Ok(None));
+    assert_eq!(read(&Stubs, &TextHost, 7), Ok(None));
     let next = traitstub::defs! { target = deps; enabled => || true; };
     assert!(next.enabled());
     assert_eq!(read(&next, &NumericHost, 1), Ok(Some(43)));

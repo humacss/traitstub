@@ -5,7 +5,7 @@ macro_rules! __traitstub_function_overrides {
     (@instance [[$root:ident] [$contract:ident] [$($scope:ident)*] [] $methods:tt] [$($request:tt)*]) => {{
         $crate::__traitstub_methods! { @import_schema [$root] [$($scope)*] [$contract] }
         __schema! { @functions }
-        $crate::__traitstub_function_overrides! { @headers $methods [Defs]; $($request)* }
+        $crate::__traitstub_function_overrides! { @headers $methods [Stubs]; $($request)* }
     }};
     (@headers $methods:tt $base:tt; lookup = $($path:ident)::+; $($rest:tt)*) => {
         $crate::__traitstub_function_overrides! { @headers $methods $base; $($rest)* }

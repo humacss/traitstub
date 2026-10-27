@@ -201,7 +201,7 @@ mod tests {
             let first = Cell::new(10);
             let second = Cell::new(20);
             let deps = crate::defs! {
-                target = { evaluations.set(evaluations.get() + 1); Defs };
+                target = { evaluations.set(evaluations.get() + 1); Stubs };
                 first() -> usize => || { first.set(first.get() + 1); first.get() };
                 second() -> usize => || { second.set(second.get() + 1); second.get() };
             };
@@ -212,7 +212,10 @@ mod tests {
                 (deps.first(), deps.second(), deps.untouched()),
                 (40, 22, 30)
             );
-            assert_eq!((Defs.first(), Defs.second(), Defs.untouched()), (1, 2, 3));
+            assert_eq!(
+                (Stubs.first(), Stubs.second(), Stubs.untouched()),
+                (1, 2, 3)
+            );
         }
     }
 
@@ -235,7 +238,7 @@ mod tests {
         fn several_bodies_preserve_the_remaining_stubs_and_generic_methods() {
             let mut evaluations = 0;
             let deps = crate::defs! {
-                target = { evaluations += 1; Defs };
+                target = { evaluations += 1; Stubs };
                 first() => 10;
                 duplicate(value) => (value.clone(), value);
             };
@@ -306,8 +309,8 @@ mod tests {
         }
         #[test]
         fn forwards_generics_that_arguments_cannot_infer() {
-            assert_eq!(Defs.count::<3>(), 0);
-            assert_eq!(Defs.size::<u64>(), 0);
+            assert_eq!(Stubs.count::<3>(), 0);
+            assert_eq!(Stubs.size::<u64>(), 0);
             let deps = crate::defs! { count() => N * 2; };
             assert_eq!(deps.count::<3>(), 6);
             assert_eq!(deps.size::<u64>(), 0);
@@ -329,7 +332,7 @@ mod tests {
         fn local_collections_accept_custom_names_without_metadata_headers() {
             // The chosen defaults name is imported under the conventional name for
             // header-free individual overrides.
-            use WorkerDefs as Defs;
+            use WorkerDefs as Stubs;
             let deps = crate::defs! { value() => 3; };
             assert_eq!(
                 (WorkerDeps.value(), WorkerDefs.value(), deps.value()),
@@ -380,7 +383,7 @@ mod tests {
         }
 
         mod across_modules {
-            use crate::defs::layer::tests::typed_dependencies::tests::Defs;
+            use crate::defs::layer::tests::typed_dependencies::tests::Stubs;
             use crate::defs::layer::tests::typed_dependencies::Deps;
 
             #[test]

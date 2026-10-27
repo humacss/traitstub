@@ -55,14 +55,14 @@ mod tests {
             assert_eq!(second.join().unwrap(), 5);
         });
         assert_eq!(seen.load(Ordering::Relaxed), 1);
-        assert_eq!(Defs.first(&text), 0);
+        assert_eq!(Stubs.first(&text), 0);
     }
     #[test]
     fn typed_overrides_preserve_the_base_and_evaluate_the_target_once() {
         let mut evaluations = 0;
         let answer = 42;
         let deps = crate::defs! {
-            target = { evaluations += 1; Defs };
+            target = { evaluations += 1; Stubs };
             first(host: &u64) -> usize => |_| answer;
         };
         assert_eq!(evaluations, 1);

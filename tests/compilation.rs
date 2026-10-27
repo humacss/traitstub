@@ -42,7 +42,7 @@ core_alias::stubs! {
 #[test]
 fn exported_contracts_need_no_procedural_metadata_or_source_imports() {
     assert_eq!(Lookup.value(), std::path::PathBuf::from("production"));
-    assert_eq!(Defs.value(), std::path::PathBuf::from("shared"));
+    assert_eq!(Stubs.value(), std::path::PathBuf::from("shared"));
     let name = String::from("fixture");
     let deps =
         core_alias::defs! { value => || std::path::PathBuf::from(&name); };
@@ -73,7 +73,7 @@ mod typed {
 }
 #[cfg(test)]
 mod caller {
-    use crate::typed::Defs;
+    use crate::typed::Stubs;
     use provider::typed::Deps;
     #[test]
     fn imported_defaults_keep_their_original_scope() {
@@ -96,7 +96,7 @@ mod exported_defaults {
 }
 #[cfg(test)]
 mod exported_caller {
-    use crate::exported_defaults::Defs;
+    use crate::exported_defaults::Stubs;
     use provider::typed::Deps;
     #[test]
     fn explicit_default_exports_still_preserve_the_schema_crate() {
@@ -156,7 +156,7 @@ fn external_contracts_and_renamed_dependencies_work() {
 fn qualified_contract_paths_work_for_explicit_layers() {
     let deps = renamed::defs! {
         contract = provider::api::Contract;
-        target = Defs;
+        target = Stubs;
         copy(value) => (value.clone(), value);
         path() => std::path::PathBuf::from("overridden");
     };
@@ -227,7 +227,7 @@ pub mod shared {
 const FUNCTION_CONSUMER: &str = r###"
 #![forbid(macro_expanded_macro_exports_accessed_by_absolute_paths)]
 use provider::api::Deps;
-use provider::shared::Defs;
+use provider::shared::Stubs;
 type TextHost = dyn provider::api::Host<Value = String, Error = &'static str>;
 type NumericHost = dyn provider::api::Host<Value = u128, Error = u8>;
 #[test]
@@ -254,8 +254,8 @@ mod local {
     }
     #[test]
     fn default_stubs_support_each_hosts_result_types() {
-        assert_eq!(Defs.query::<super::TextHost>(1), Ok(None));
-        assert_eq!(Defs.query::<super::NumericHost>(1), Ok(None));
+        assert_eq!(Stubs.query::<super::TextHost>(1), Ok(None));
+        assert_eq!(Stubs.query::<super::NumericHost>(1), Ok(None));
     }
 }
 "###;
@@ -545,7 +545,7 @@ fn bound_collections_keep_the_default_recursion_limit(#[case] count: usize) {
         .map(|i| format!("f{i} => |value| value + {i};"))
         .collect::<String>();
     let assertions = (0..count)
-        .map(|i| format!("assert_eq!(Defs.f{i}(7), 7 + {i});"))
+        .map(|i| format!("assert_eq!(Stubs.f{i}(7), 7 + {i});"))
         .collect::<String>();
     let source = format!(
         "traitstub::deps! {{ {declarations} }}

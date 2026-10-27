@@ -76,21 +76,21 @@ mod tests {
     fn public_and_internal_calls_use_the_same_processing_logic() {
         let expected = Ok(Some((User { id: 7 }, 7)));
         assert_eq!(process(7, 3), expected);
-        assert_eq!(process_with_deps(&Defs, 7, 3), expected);
+        assert_eq!(process_with_deps(&Stubs, 7, 3), expected);
     }
 
     #[test]
     fn overrides_compose_custom_inputs_and_results() {
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             load(id) => Ok(Some(User { id: id + 1 }));
             save(user) => Ok(user.id * 2);
         };
         assert_eq!(
-            process_with_deps(&deps, 7, 3),
+            process_with_deps(&defs, 7, 3),
             Ok(Some((User { id: 8 }, 16)))
         );
         assert_eq!(
-            process_with_deps(&Defs, 7, 3),
+            process_with_deps(&Stubs, 7, 3),
             Ok(Some((User { id: 7 }, 7)))
         );
     }
@@ -98,18 +98,18 @@ mod tests {
     #[test]
     fn captured_overrides_keep_concrete_return_types() {
         let adjustment = Cell::new(1_u64);
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             load => |id| {
                 Ok(Some(User { id: id + adjustment.get() }))
             };
         };
         assert_eq!(
-            process_with_deps(&deps, 7, 3),
+            process_with_deps(&defs, 7, 3),
             Ok(Some((User { id: 8 }, 8)))
         );
         adjustment.set(2);
         assert_eq!(
-            process_with_deps(&deps, 7, 3),
+            process_with_deps(&defs, 7, 3),
             Ok(Some((User { id: 9 }, 9)))
         );
     }
@@ -130,7 +130,7 @@ mod tests {
         let responses = RefCell::new([None, None, Some(User { id: 7 })].into_iter());
         let reads = Cell::new(0);
         let writes = Cell::new(0);
-        let deps = traitstub::defs! {
+        let defs = traitstub::defs! {
             load => |_| {
                 reads.set(reads.get() + 1);
                 Ok(responses.borrow_mut().next().flatten())
@@ -140,7 +140,7 @@ mod tests {
                 Ok(user.id)
             };
         };
-        assert_eq!(process_with_deps(&deps, 7, attempts), Ok(expected));
+        assert_eq!(process_with_deps(&defs, 7, attempts), Ok(expected));
         assert_eq!(
             (reads.get(), writes.get()),
             (expected_reads, expected_writes)
@@ -149,24 +149,24 @@ mod tests {
 
     #[test]
     fn failed_load_skips_save_in_a_later_override_layer() {
-        let deps = traitstub::defs! { load(_id) => Err("load failed"); };
-        let deps = traitstub::defs! {
-            target = deps;
+        let defs = traitstub::defs! { load(_id) => Err("load failed"); };
+        let defs = traitstub::defs! {
+            target = defs;
             save(_user) => panic!("save must not run after loading fails");
         };
-        assert_eq!(process_with_deps(&deps, 7, 3), Err("load failed"));
+        assert_eq!(process_with_deps(&defs, 7, 3), Err("load failed"));
     }
 
     #[test]
     fn save_errors_are_preserved() {
-        let deps = traitstub::defs! { save(_user) => Err("storage unavailable"); };
-        assert_eq!(process_with_deps(&deps, 7, 3), Err("storage unavailable"));
+        let defs = traitstub::defs! { save(_user) => Err("storage unavailable"); };
+        assert_eq!(process_with_deps(&defs, 7, 3), Err("storage unavailable"));
     }
 
     #[test]
     fn each_generic_call_can_choose_a_different_type() {
-        let deps = traitstub::defs! { duplicate(value) => (value.clone(), value); };
-        assert_eq!(deps.duplicate("hello"), ("hello", "hello"));
-        assert_eq!(deps.duplicate(42_u64), (42, 42));
+        let defs = traitstub::defs! { duplicate(value) => (value.clone(), value); };
+        assert_eq!(defs.duplicate("hello"), ("hello", "hello"));
+        assert_eq!(defs.duplicate(42_u64), (42, 42));
     }
 }

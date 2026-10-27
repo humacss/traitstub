@@ -8,7 +8,7 @@
 
 /// Replace the dependencies an individual test cares about.
 ///
-/// Start from `Defs`, or choose an existing implementation with `target = value;`.
+/// Start from `Stubs`, or choose an existing implementation with `target = value;`.
 /// Replace one function or several. The rest keep using the base implementation,
 /// and the result is a new value owned by this test.
 ///
@@ -23,7 +23,7 @@
 /// traitstub::stubs! { value => || 0; other => || 0; }
 /// let first = traitstub::defs! { value() => 7; };
 /// let second = traitstub::defs! { target = first; other() => 9; };
-/// assert_eq!((second.value(), second.other(), Defs.value()), (7, 9, 0));
+/// assert_eq!((second.value(), second.other(), Stubs.value()), (7, 9, 0));
 /// ```
 ///
 /// # Using data from the test
@@ -68,7 +68,7 @@
 ///
 /// `contract = api::Deps; target = instance;` explicitly selects the contract,
 /// including for handwritten implementations. For custom stub names, import
-/// the metadata as `Defs` or give both `contract` and `target`.
+/// the metadata as `Stubs` or give both `contract` and `target`.
 ///
 /// The base is evaluated once, before captured closures, which are evaluated in
 /// declaration order. Layers implement `Clone`, `Copy` and `Default` when their
@@ -147,7 +147,7 @@ macro_rules! defs {
     (contract = $($contract:ident)::+; $($bad:tt)*) => {
         compile_error!("an explicit contract needs target = value;");
     };
-    ($($request:tt)*) => { Defs! { [$crate] $($request)* } };
+    ($($request:tt)*) => { Stubs! { [$crate] $($request)* } };
 }
 
 #[doc(hidden)]
@@ -156,9 +156,9 @@ macro_rules! __traitstub_defs {
     (@instance $root:tt $contract:tt $scope:tt [__functions] $assoc:tt $methods:tt $defaults:tt $path:tt [$($request:tt)*]) => {
         $crate::__traitstub_function_overrides! { @instance [$root $contract $scope $assoc $methods] [$($request)*] }
     };
-    // --- @instance: receive the schema and start with Defs as the default base ---
+    // --- @instance: receive the schema and start with Stubs as the default base ---
     (@instance $root:tt [$contract:ident] $scope:tt $bounds:tt $assoc:tt $methods:tt $defaults:tt $path:tt [$($request:tt)*]) => {
-        $crate::__traitstub_defs! { @headers [$root [$contract] $scope $bounds $assoc $methods $defaults $path] [Defs] [$contract] []; $($request)* }
+        $crate::__traitstub_defs! { @headers [$root [$contract] $scope $bounds $assoc $methods $defaults $path] [Stubs] [$contract] []; $($request)* }
     };
 
     (@headers $context:tt $target:tt $choices:tt $lifetimes:tt;
@@ -269,7 +269,7 @@ mod tests {
             assert_eq!(deps.trim(&text), "hello ");
             deps.record(7);
             assert_eq!(*recorded.borrow(), [7]);
-            assert_eq!(Defs.load(7), "");
+            assert_eq!(Stubs.load(7), "");
         }
 
         mod ordinary_shorthand {
@@ -284,7 +284,7 @@ mod tests {
                 let deps = crate::defs! { record(values) => values.push(3) };
                 let mut values = Vec::new();
                 Deps.record(&mut values);
-                Defs.record(&mut values);
+                Stubs.record(&mut values);
                 deps.record(&mut values);
                 assert_eq!(values, [1, 2, 3]);
             }

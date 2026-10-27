@@ -25,7 +25,7 @@ fn production_shared_and_individual_implementations_use_the_same_function(#[case
     let layered = traitstub::defs! { target = individual; prefix() => "Goodbye"; };
 
     assert_eq!(greet(&Deps, id), format!("Hello, user-{id}!"));
-    assert_eq!(greet(&Defs, id), "Welcome, Test User!");
+    assert_eq!(greet(&Stubs, id), "Welcome, Test User!");
     assert_eq!(greet(&individual, id), "Welcome, Ada!");
     assert_eq!(greet(&layered, id), "Goodbye, Ada!");
 }

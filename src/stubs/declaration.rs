@@ -2,7 +2,7 @@
 //!
 //! Flow: stubs! -> @types -> contract's @defaults -> @parse -> @emit.
 //! @implementation checks names and emits the shared zero-sized implementation;
-//! @emit also creates the Defs metadata used later by defs!.
+//! @emit also creates the Stubs metadata used later by defs!.
 //!
 //! Parsed replacements are `(name [body closure])` or `(name [method RustItem])`.
 //! Every schema method must have a replacement: shared method emission reports
@@ -13,7 +13,7 @@
 /// Define the test stubs you want to share between tests.
 ///
 /// Supply an implementation for every dependency, usually inside the test module.
-/// You get a zero-sized value named `Defs` that each test can use directly or
+/// You get a zero-sized value named `Stubs` that each test can use directly or
 /// build on with [`defs!`](crate::defs!). Forgetting a stub is a compile error;
 /// it does not call the production function instead.
 ///
@@ -23,7 +23,7 @@
 /// ```
 /// traitstub::deps! { value() -> u64, || 1; other() -> u64, || 2; }
 /// traitstub::stubs! { value => || 10; other => || 20; }
-/// assert_eq!((Deps.value(), Defs.value(), Defs.other()), (1, 10, 20));
+/// assert_eq!((Deps.value(), Stubs.value(), Stubs.other()), (1, 10, 20));
 /// ```
 ///
 /// Use `name => closure;`, `name(arguments) => body;` or a full method such as
@@ -81,22 +81,22 @@ macro_rules! stubs {
         $crate::__traitstub_stubs! { @types [$($contract)::+] [$name] [$export] [$default_origin] [$($scope)*] []; $($rest)* }
     };
     (export = $export:ident; scope = $default_origin:ident $(::$scope:ident)*; $($rest:tt)*) => {
-        $crate::stubs! { contract = Deps; export = $export; name = Defs; scope = $default_origin $(::$scope)*; $($rest)* }
+        $crate::stubs! { contract = Deps; export = $export; name = Stubs; scope = $default_origin $(::$scope)*; $($rest)* }
     };
     (contract = $($contract:ident)::+; export = $export:ident; scope = $default_origin:ident $(::$scope:ident)*; $($rest:tt)*) => {
-        $crate::stubs! { contract = $($contract)::+; export = $export; name = Defs; scope = $default_origin $(::$scope)*; $($rest)* }
+        $crate::stubs! { contract = $($contract)::+; export = $export; name = Stubs; scope = $default_origin $(::$scope)*; $($rest)* }
     };
     (contract = $($contract:ident)::+; name = $name:ident; $($rest:tt)*) => {
         $crate::__traitstub_stubs! { @types [$($contract)::+] [$name] [__traitstub_defaults] [__local] [] []; $($rest)* }
     };
     (contract = $($contract:ident)::+; $($rest:tt)*) => {
-        $crate::stubs! { contract = $($contract)::+; name = Defs; $($rest)* }
+        $crate::stubs! { contract = $($contract)::+; name = Stubs; $($rest)* }
     };
     (name = $name:ident; $($rest:tt)*) => {
         $crate::stubs! { contract = Deps; name = $name; $($rest)* }
     };
     ($($rest:tt)*) => {
-        $crate::stubs! { contract = Deps; name = Defs; $($rest)* }
+        $crate::stubs! { contract = Deps; name = Stubs; $($rest)* }
     };
 }
 
@@ -240,7 +240,7 @@ mod tests {
 
     #[rstest]
     #[case::production(Deps, "Hello, user-7 from team-7!")]
-    #[case::default_name(Defs, "Hello, Test User from Test Team!")]
+    #[case::default_name(Stubs, "Hello, Test User from Test Team!")]
     #[case::custom_name(TestDeps, "Hello, Test User from Test Team!")]
     #[case::alternate(AlternateDeps, "Hello, Alternate from Other Team!")]
     #[case::empty(EmptyDeps, "Hello,  from !")]
@@ -254,7 +254,7 @@ mod tests {
 
     #[rstest]
     #[case::production(Deps)]
-    #[case::default_name(Defs)]
+    #[case::default_name(Stubs)]
     #[case::custom_name(TestDeps)]
     #[case::nested_module(namespace::LocalDeps)]
     fn overrides_keep_the_selected_base_and_leave_it_unchanged<D: Deps + Copy>(#[case] base: D) {
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::default_name(Defs)]
+    #[case::default_name(Stubs)]
     #[case::custom_name(TestDeps)]
     fn named_defaults_keep_captured_state_across_layers<D: Deps>(#[case] base: D) {
         let mut evaluations = 0;
@@ -292,7 +292,7 @@ mod tests {
     mod custom {
         use rstest::rstest;
         crate::deps! { target = CustomDeps; value(input: u64) -> u64, |input| input + 1; }
-        crate::stubs! { target = CustomDeps; name = CustomDefs; value => |input| input + 10; }
+        crate::stubs! { target = CustomDeps; name = CustomStubs; value => |input| input + 10; }
         mod reordered_headers {
             use super::*;
             crate::stubs! { name = Reordered; target = super::CustomDeps; value => |_| 0; }
@@ -303,14 +303,14 @@ mod tests {
             #[test]
             fn implicit_output_name_supplies_the_override_base() {
                 let deps = crate::defs! { value => |input| input * 4; };
-                assert_eq!((Defs.value(7), deps.value(7)), (21, 28));
+                assert_eq!((Stubs.value(7), deps.value(7)), (21, 28));
             }
         }
         #[rstest]
         #[case::production(CustomDeps, 8)]
-        #[case::named(CustomDefs, 17)]
+        #[case::named(CustomStubs, 17)]
         #[case::reordered_headers(reordered_headers::Reordered, 0)]
-        #[case::default_output(default_name::Defs, 21)]
+        #[case::default_output(default_name::Stubs, 21)]
         fn custom_contracts_keep_the_selected_implementation<D: CustomDeps>(
             #[case] base: D,
             #[case] expected: u64,
