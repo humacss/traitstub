@@ -18,9 +18,10 @@ macro_rules! __traitstub_function_stubs {
     };
     (@method [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
         ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]] [body $body:expr]) => {
-        $($attrs)* impl<$($gen),*> __function_schema::$name<$($gen),*> for __Stub
+        impl<$($gen),*> __function_schema::$name<$($gen),*> for __Stub
         where $($where)* {
-            fn __call(&self, $($arg:$ty),*) -> $out {
+            #[allow(unused_attributes)]
+            $($attrs)* fn __call(&self, $($arg:$ty),*) -> $out {
                 let call: fn($($ty),*) -> _ = $body;
                 call($($arg),*)
             }
@@ -46,5 +47,21 @@ mod tests {
             assert_eq!(deps.query(text.as_str()), 5);
             assert_eq!(Defs.query(&7_u64), 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod method_attribute_tests {
+    #![deny(unused_attributes)]
+    crate::deps! {
+        #[inline]
+        #[track_caller]
+        #[must_use]
+        value(input: usize) -> usize;
+    }
+    crate::stubs! { value => |input| input + 1; }
+    #[test]
+    fn function_attributes_apply_to_shared_stub_methods() {
+        assert_eq!(Defs.value(41), 42);
     }
 }

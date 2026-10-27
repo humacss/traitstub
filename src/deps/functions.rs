@@ -41,7 +41,7 @@ macro_rules! __traitstub_functions {
                 $( $crate::__traitstub_functions! { @call_trait [$contract]
                     [[$($attrs)*] $name [$($gen),*] $call ($($arg:$ty),*) [$out] [$($where)*]] } )*
             }
-            $( $($attrs)* pub use self::__methods::$name::__Call as $name; )*
+            $( pub use self::__methods::$name::__Call as $name; )*
         }
         #[doc(hidden)]
         #[derive(Clone, Copy, Default)]
@@ -67,10 +67,13 @@ macro_rules! __traitstub_functions {
     };
     (@call_trait [$contract:ident] [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
         ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]]) => {
-        $($attrs)* #[allow(non_snake_case)] pub mod $name {
+        #[allow(non_snake_case)] pub mod $name {
             #[allow(unused_imports)] use super::super::super::*;
             pub trait __Call<$($gen),*>: $contract where $($where)* {
-                fn __call(&self, $($arg:$ty),*) -> $out;
+                // Function-only attributes belong on the method, not its module.
+                // Rust ignores inlining hints on a trait method without a body.
+                #[allow(unused_attributes, clippy::inline_fn_without_body)]
+                $($attrs)* fn __call(&self, $($arg:$ty),*) -> $out;
             }
             $crate::__traitstub_functions! { @inference [$($gen),*] ($($arg:$ty),*) [$out] }
         }
@@ -100,10 +103,11 @@ macro_rules! __traitstub_functions {
     };
     (@bound_impl [$contract:ident] [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
         ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]]) => {
-        $($attrs)* impl<$($gen,)* __Functions> calls::$name<$($gen),*> for __TraitstubProduction<__Functions>
+        impl<$($gen,)* __Functions> calls::$name<$($gen),*> for __TraitstubProduction<__Functions>
         where __Functions: __Storage,
             <__Functions as __Storage>::$name: ::core::ops::Fn($($ty),*) -> $out, $($where)* {
-            fn __call(&self, $($arg:$ty),*) -> $out { (self.0.$name())($($arg),*) }
+            #[allow(unused_attributes)]
+            $($attrs)* fn __call(&self, $($arg:$ty),*) -> $out { (self.0.$name())($($arg),*) }
         }
     };
 }
@@ -154,5 +158,21 @@ mod tests {
             let test = crate::defs! { len => |input| input.len() + bonus; };
             assert_eq!(test.len(&text), 7);
         }
+    }
+}
+
+#[cfg(test)]
+mod method_attribute_tests {
+    #![deny(unused_attributes)]
+    crate::deps! {
+        #[inline]
+        #[track_caller]
+        #[must_use]
+        value(input: usize) -> usize;
+    }
+    #[test]
+    fn function_attributes_apply_to_constructor_bound_methods() {
+        let deps = Deps(|input| input + 1);
+        assert_eq!(deps.value(41), 42);
     }
 }

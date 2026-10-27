@@ -11,19 +11,21 @@ macro_rules! __traitstub_function_layer {
     };
     (@method [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
        ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]] [capture]) => {
-        $($attrs)* impl<$($gen,)* __Base: __schema, __Functions> __function_schema::$name<$($gen),*>
+        impl<$($gen,)* __Base: __schema, __Functions> __function_schema::$name<$($gen),*>
             for __Layer<__Base, __Functions>
         where __Functions: __CaptureCalls,
               <__Functions as __CaptureCalls>::$name: ::core::ops::Fn($($ty),*) -> $out, $($where)* {
-            fn __call(&self, $($arg:$ty),*) -> $out { (self.replacement.$name())($($arg),*) }
+            #[allow(unused_attributes)]
+            $($attrs)* fn __call(&self, $($arg:$ty),*) -> $out { (self.replacement.$name())($($arg),*) }
         }
     };
     (@method [[$($attrs:tt)*] $name:ident [$($gen:ident),*] $call:tt
        ($($arg:ident:$ty:ty),*) [$out:ty] [$($where:tt)*]] [forward]) => {
-        $($attrs)* impl<$($gen,)* __Base, __Functions> __function_schema::$name<$($gen),*>
+        impl<$($gen,)* __Base, __Functions> __function_schema::$name<$($gen),*>
             for __Layer<__Base, __Functions>
         where __Base: __schema + __function_schema::$name<$($gen),*>, $($where)* {
-            fn __call(&self, $($arg:$ty),*) -> $out {
+            #[allow(unused_attributes)]
+            $($attrs)* fn __call(&self, $($arg:$ty),*) -> $out {
                 <__Base as __function_schema::$name<$($gen),*>>::__call(&self.base, $($arg),*)
             }
         }
@@ -66,5 +68,28 @@ mod tests {
         assert_eq!(evaluations, 1);
         assert_eq!(deps.first(&7_u64), 42);
         assert_eq!(deps.second(&"another host"), 1);
+    }
+}
+
+#[cfg(test)]
+mod method_attribute_tests {
+    #![deny(unused_attributes)]
+    crate::deps! {
+        #[inline]
+        #[track_caller]
+        #[must_use]
+        first(input: usize) -> usize;
+        #[inline]
+        #[track_caller]
+        #[must_use]
+        second(input: usize) -> usize;
+    }
+    crate::stubs! { first => |input| input + 1; second => |input| input * 2; }
+    #[test]
+    fn function_attributes_apply_to_replaced_and_inherited_methods() {
+        let offset = 2;
+        let deps = crate::defs! { first => |input| input + offset; };
+        assert_eq!(deps.first(40), 42);
+        assert_eq!(deps.second(21), 42);
     }
 }

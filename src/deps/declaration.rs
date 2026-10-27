@@ -28,7 +28,8 @@
 ///   `Default` bounds are also supported when stored values meet those bounds.
 /// - Methods accept bracketed generics (`copy[T: Clone](value: T)`), optional
 ///   `call [T, N]` forwarding arguments, and bracketed `where [...]` predicates.
-/// - Omitted return types mean `()`. Method attributes are passed through unchanged.
+/// - Omitted return types mean `()`. Method attributes apply to generated methods;
+///   they do not conditionally remove a dependency from the collection.
 ///
 /// Cross-crate use adds `export = unique_name; target = Name; scope = crate::module;`
 /// before the declarations; `target` is optional.
