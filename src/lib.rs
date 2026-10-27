@@ -36,9 +36,10 @@
 //! their dependencies into the internal function. The examples below show this
 //! split without exposing dependencies to production callers.
 //!
-//! Production and shared defaults are zero-sized. Overrides store their base and
-//! closures directly; the library adds no heap allocations, locks or global state.
-//! Dependency bodies and captured values can still allocate normally.
+//! Production-body defaults and shared stubs are zero-sized. Constructor-bound
+//! dependencies store their callables and captured context. Overrides store their
+//! base and closures directly. Traitstub adds no heap allocations, locks or global
+//! state; dependency bodies and captured values can still allocate normally.
 //!
 //! A collection can also declare function signatures without production bodies.
 //! Its constructor then binds the real callables where their context is known.

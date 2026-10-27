@@ -27,6 +27,15 @@ More complete mocking libraries have their uses. The goal here is to keep the
 mechanism simple enough that you can see what the test is doing, using Rust's
 existing features and keeping the tests readable.
 
+## Installation
+
+Add Traitstub to your `Cargo.toml`:
+
+```toml
+[dependencies]
+traitstub = "0.1"
+```
+
 ## Usage
 
 There are three macros:
@@ -182,9 +191,11 @@ If a function only needs one closure, passing that closure directly may be all
 you need. Traitstub is useful when managing the implementations becomes the
 boilerplate.
 
-Production and shared defaults are zero-sized. Overrides store their base and
-closures directly. Traitstub adds no heap allocations, locks or global state;
-your dependency implementations can still allocate or synchronize normally.
+Production-body defaults and shared stubs are zero-sized. Constructor-bound
+dependencies store their callables and any captured context; overrides store
+their base and closures directly. Traitstub adds no heap allocations, locks or
+global state. Your dependency implementations can still allocate or synchronize
+normally.
 
 ## More control
 
