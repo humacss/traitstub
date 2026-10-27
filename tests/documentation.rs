@@ -11,8 +11,17 @@ fn without_indentation(text: &str) -> String {
 #[case::individual_override("override", include_str!("../examples/common.rs"))]
 #[case::custom_types("custom-types", include_str!("../examples/types.rs"))]
 #[case::worker_generics("worker-generics", include_str!("../examples/workers.rs"))]
-fn readme_snippets_match_the_runnable_example(#[case] name: &str, #[case] source: &str) {
-    let readme = include_str!("../README.md");
+fn readme_snippets_match_the_runnable_example(
+    #[case] name: &str,
+    #[case] source: &str,
+    #[values("\n", "\r\n")] line_ending: &str,
+) {
+    let readme = include_str!("../README.md")
+        .lines()
+        .collect::<Vec<_>>()
+        .join(line_ending);
+    // Git checkouts may use CRLF on Windows; the markers use logical lines.
+    let readme = readme.replace("\r\n", "\n");
     let example = without_indentation(source);
     let marker = format!("<!-- example: {name} -->\n```rust\n");
     let section = readme
